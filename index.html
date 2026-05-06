@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Daňová evidence pro OSVČ - peněžní deník, faktury, zásoby, majetek" />
+  <title>Daňová Evidence</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════
+     LOGIN SCREEN
+═══════════════════════════════════════════════════════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-icon">📊</div>
+      <h1>Daňová Evidence</h1>
+      <p>OSVČ · Neplátce DPH</p>
+    </div>
+    <form id="login-form" style="display:flex;flex-direction:column;gap:0.9rem;">
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" id="login-email" class="form-control" placeholder="tvuj@email.cz" required autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Heslo</label>
+        <input type="password" id="login-password" class="form-control" placeholder="••••••••" required autocomplete="current-password" />
+      </div>
+      <div id="login-error" style="display:none;font-size:0.8rem;color:var(--danger);padding:0.5rem 0.75rem;background:var(--danger-bg);border-radius:var(--radius);border:1px solid var(--danger-border);"></div>
+      <button type="submit" class="btn btn-primary" id="login-btn" style="margin-top:0.25rem;justify-content:center;padding:0.65rem;">
+        Přihlásit se
+      </button>
+    </form>
+    <p style="text-align:center;font-size:0.72rem;margin-top:1.5rem;color:var(--text-muted);">
+      Přihlášení přes Firebase Authentication
+    </p>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     MAIN APP
+═══════════════════════════════════════════════════════ -->
+<div id="app" style="display:none;">
+
+  <!-- Sidebar overlay (mobile) -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+  <!-- ── SIDEBAR ─────────────────────────────────────────── -->
+  <nav id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">
+        <div class="logo-icon">📊</div>
+        <div>
+          <span>Daňová Evidence<small>OSVČ · Neplátce DPH</small></span>
+        </div>
+      </div>
+      <div class="year-selector">
+        <select id="year-select" title="Vyber rok"></select>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-section">
+        <div class="nav-label">Přehled</div>
+        <button class="nav-item active" data-section="dashboard">
+          <span class="nav-icon">🏠</span> Dashboard
+        </button>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-label">Hlavní evidence</div>
+        <button class="nav-item" data-section="penezni-denik">
+          <span class="nav-icon">📒</span> Peněžní deník
+        </button>
+        <button class="nav-item" data-section="faktury-vydane">
+          <span class="nav-icon">📄</span> Faktury vydané
+          <span class="nav-badge" id="badge-vydane" style="display:none;">0</span>
+        </button>
+        <button class="nav-item" data-section="faktury-prijate">
+          <span class="nav-icon">📥</span> Faktury přijaté
+          <span class="nav-badge" id="badge-prijate" style="display:none;">0</span>
+        </button>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-label">Majetek</div>
+        <button class="nav-item" data-section="zasoby">
+          <span class="nav-icon">📦</span> Zásoby
+        </button>
+        <button class="nav-item" data-section="majetek">
+          <span class="nav-icon">🏗️</span> Dlouhodobý majetek
+        </button>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-label">Daně</div>
+        <button class="nav-item" data-section="danovy-prehled">
+          <span class="nav-icon">🧮</span> Daňový přehled
+        </button>
+      </div>
+
+      <div class="nav-section">
+        <button class="nav-item" data-section="nastaveni">
+          <span class="nav-icon">⚙️</span> Nastavení
+        </button>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div class="user-avatar" id="user-avatar">?</div>
+        <div class="user-details">
+          <div class="user-name" id="user-name">—</div>
+          <div class="user-role">OSVČ</div>
+        </div>
+        <button class="btn-logout" id="btn-logout" title="Odhlásit se">⏻</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── MOBILE HEADER ────────────────────────────────────── -->
+  <div id="mobile-header">
+    <button class="hamburger" id="hamburger">☰</button>
+    <span class="page-title" id="mobile-title">Dashboard</span>
+  </div>
+
+  <!-- ── MAIN CONTENT ─────────────────────────────────────── -->
+  <main id="main-content">
+
+    <!-- ── DASHBOARD ──────────────────────────────────────── -->
+    <section class="section active" id="dashboard">
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1>Dashboard</h1>
+          <p id="dashboard-subtitle">Přehled za rok 2026</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-primary" onclick="openModal('modal-transakce')">
+            + Nový záznam
+          </button>
+        </div>
+      </div>
+
+      <!-- Stav účtů -->
+      <div>
+        <h3 style="font-size:0.78rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:0.6rem;font-weight:600;">Stav účtů</h3>
+        <div class="accounts-grid" id="accounts-grid">
+          <div class="account-card">
+            <div class="account-card-top">
+              <span class="account-icon">💵</span>
+              <span class="account-label">Hotovost</span>
+            </div>
+            <div class="account-balance" id="balance-hotovost">0 Kč</div>
+          </div>
+          <div class="account-card">
+            <div class="account-card-top">
+              <span class="account-icon">🏦</span>
+              <span class="account-label">Podnik. účet</span>
+            </div>
+            <div class="account-balance" id="balance-bank">0 Kč</div>
+          </div>
+          <div class="account-card">
+            <div class="account-card-top">
+              <span class="account-icon">💳</span>
+              <span class="account-label">Revolut Business</span>
+            </div>
+            <div class="account-balance" id="balance-revolut">0 Kč</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Klíčové ukazatele -->
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card green">
+          <div class="stat-icon">💰</div>
+          <div class="stat-label">Příjmy (zdanitelné)</div>
+          <div class="stat-value green" id="stat-prijmy">0 Kč</div>
+          <div class="stat-sub" id="stat-prijmy-sub">Tržby z podnikání</div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-icon">💸</div>
+          <div class="stat-label">Výdaje (zdanitelné)</div>
+          <div class="stat-value red" id="stat-vydaje">0 Kč</div>
+          <div class="stat-sub" id="stat-vydaje-sub">Náklady podnikání</div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-icon">🧮</div>
+          <div class="stat-label">Základ daně</div>
+          <div class="stat-value blue" id="stat-zaklad">0 Kč</div>
+          <div class="stat-sub">Příjmy − Výdaje</div>
+        </div>
+        <div class="stat-card yellow">
+          <div class="stat-icon">📋</div>
+          <div class="stat-label">Nezaplacené faktury</div>
+          <div class="stat-value yellow" id="stat-nezaplacene">0</div>
+          <div class="stat-sub" id="stat-nezaplacene-sub">—</div>
+        </div>
+      </div>
+
+      <!-- Daňový přehled zkrátka -->
+      <div class="tax-box" id="tax-box-dashboard">
+        <div class="tax-box-title">🧮 Přehled základu daně — <span id="tax-year-label">2026</span></div>
+        <div class="tax-row">
+          <span class="tax-row-label">Zdanitelné příjmy</span>
+          <span class="tax-row-value" id="tax-prijmy">0 Kč</span>
+        </div>
+        <div class="tax-row">
+          <span class="tax-row-label">Daňově uznatelné výdaje</span>
+          <span class="tax-row-value" id="tax-vydaje">− 0 Kč</span>
+        </div>
+        <div class="tax-row">
+          <span class="tax-row-label">Odpisy majetku</span>
+          <span class="tax-row-value" id="tax-odpisy">− 0 Kč</span>
+        </div>
+        <div class="tax-row" style="margin-top:0.25rem;padding-top:0.5rem;border-top:1px solid var(--accent-border);">
+          <span class="tax-row-label" style="font-weight:700;color:var(--text-primary);">Základ daně</span>
+          <span class="tax-row-value accent" id="tax-zaklad-final">0 Kč</span>
+        </div>
+      </div>
+
+      <!-- Poslední záznamy -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📒 Poslední záznamy v deníku</span>
+          <button class="btn btn-ghost btn-sm" onclick="navigate('penezni-denik')">Zobrazit vše →</button>
+        </div>
+        <div id="recent-transactions">
+          <div class="empty-state">
+            <div class="empty-icon">📒</div>
+            <h3>Zatím žádné záznamy</h3>
+            <p>Přidej první příjem nebo výdaj tlačítkem "Nový záznam"</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PENĚŽNÍ DENÍK ───────────────────────────────────── -->
+    <section class="section" id="penezni-denik">
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1>📒 Peněžní deník</h1>
+          <p>Evidence příjmů a výdajů · hotovost, bank, Revolut</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-secondary btn-sm" onclick="exportCsv('denik')">⬇ Export CSV</button>
+          <button class="btn btn-primary" onclick="openModal('modal-transakce')">+ Nový záznam</button>
+        </div>
+      </div>
+
+      <!-- Filtry -->
+      <div class="filters-bar">
+        <input type="text" class="search-input" id="denik-search" placeholder="🔍 Hledat popis, doklad..." oninput="renderDenik()" />
+        <select class="filter-select" id="denik-typ" onchange="renderDenik()">
+          <option value="">Typ: vše</option>
+          <option value="prijem">Příjmy</option>
+          <option value="vydej">Výdaje</option>
+        </select>
+        <select class="filter-select" id="denik-ucet" onchange="renderDenik()">
+          <option value="">Účet: vše</option>
+          <option value="hotovost">💵 Hotovost</option>
+          <option value="bank">🏦 Podnik. účet</option>
+          <option value="revolut">💳 Revolut</option>
+        </select>
+        <select class="filter-select" id="denik-mesic" onchange="renderDenik()">
+          <option value="">Měsíc: vše</option>
+          <option value="1">Leden</option><option value="2">Únor</option>
+          <option value="3">Březen</option><option value="4">Duben</option>
+          <option value="5">Květen</option><option value="6">Červen</option>
+          <option value="7">Červenec</option><option value="8">Srpen</option>
+          <option value="9">Září</option><option value="10">Říjen</option>
+          <option value="11">Listopad</option><option value="12">Prosinec</option>
+        </select>
+      </div>
+
+      <!-- Souhrn -->
+      <div class="summary-bar" id="denik-summary">
+        <div class="summary-item">
+          <span class="summary-item-label">Příjmy zdanitelné</span>
+          <span class="summary-item-value green" id="sum-prijmy-zd">0 Kč</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Výdaje zdanitelné</span>
+          <span class="summary-item-value red" id="sum-vydaje-zd">0 Kč</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Základ daně</span>
+          <span class="summary-item-value blue" id="sum-zaklad">0 Kč</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Hotovost</span>
+          <span class="summary-item-value" id="sum-hotovost">0 Kč</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Podnik. účet</span>
+          <span class="summary-item-value" id="sum-bank">0 Kč</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Revolut</span>
+          <span class="summary-item-value" id="sum-revolut">0 Kč</span>
+        </div>
+      </div>
+
+      <!-- Tabulka -->
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Datum</th>
+              <th>Doklad č.</th>
+              <th>Popis</th>
+              <th>Kategorie</th>
+              <th>Účet</th>
+              <th>Příjem</th>
+              <th>Výdej</th>
+              <th>Daň. vliv</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="denik-tbody">
+            <tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📒</div><h3>Zatím žádné záznamy</h3><p>Přidej první záznam pomocí tlačítka "+ Nový záznam"</p></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── FAKTURY VYDANÉ ──────────────────────────────────── -->
+    <section class="section" id="faktury-vydane">
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1>📄 Faktury vydané</h1>
+          <p>Doklady vystavené odběratelům za zboží a spolupráce</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-secondary btn-sm" onclick="exportCsv('faktury-vydane')">⬇ Export CSV</button>
+          <button class="btn btn-primary" onclick="openModalFakturaVydana()">+ Nová faktura</button>
+        </div>
+      </div>
+
+      <div class="filters-bar">
+        <input type="text" class="search-input" id="fv-search" placeholder="🔍 Hledat číslo, odběratel..." oninput="renderFakturyVydane()" />
+        <select class="filter-select" id="fv-stav" onchange="renderFakturyVydane()">
+          <option value="">Stav: vše</option>
+          <option value="nezaplaceno">Nezaplacené</option>
+          <option value="zaplaceno">Zaplacené</option>
+          <option value="po-splatnosti">Po splatnosti</option>
+        </select>
+      </div>
+
+      <div class="summary-bar">
+        <div class="summary-item">
+          <span class="summary-item-label">Celkem vydáno</span>
+          <span class="summary-item-value blue" id="fv-celkem">0 Kč</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Zaplaceno</span>
+          <span class="summary-item-value green" id="fv-zaplaceno">0 Kč</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Čeká na platbu</span>
+          <span class="summary-item-value yellow" id="fv-ceka">0 Kč</span>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Číslo</th>
+              <th>Datum</th>
+              <th>Splatnost</th>
+              <th>Odběratel</th>
+              <th>Celkem</th>
+              <th>Stav</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="fv-tbody">
+            <tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📄</div><h3>Zatím žádné vydané faktury</h3><p>Až začneš fakturovat spolupráce a obsah, přidej první fakturu</p></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── FAKTURY PŘIJATÉ ─────────────────────────────────── -->
+    <section class="section" id="faktury-prijate">
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1>📥 Faktury přijaté</h1>
+          <p>Doklady od dodavatelů za nákup zboží a služeb</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-secondary btn-sm" onclick="exportCsv('faktury-prijate')">⬇ Export CSV</button>
+          <button class="btn btn-primary" onclick="openModalFakturaPrijata()">+ Nová přijatá faktura</button>
+        </div>
+      </div>
+
+      <div class="filters-bar">
+        <input type="text" class="search-input" id="fp-search" placeholder="🔍 Hledat číslo, dodavatel..." oninput="renderFakturyPrijate()" />
+        <select class="filter-select" id="fp-stav" onchange="renderFakturyPrijate()">
+          <option value="">Stav: vše</option>
+          <option value="nezaplaceno">Nezaplacené</option>
+          <option value="zaplaceno">Zaplacené</option>
+          <option value="po-splatnosti">Po splatnosti</option>
+        </select>
+        <select class="filter-select" id="fp-kategorie" onchange="renderFakturyPrijate()">
+          <option value="">Kategorie: vše</option>
+        </select>
+      </div>
+
+      <div class="summary-bar">
+        <div class="summary-item">
+          <span class="summary-item-label">Celkem přijato</span>
+          <span class="summary-item-value blue" id="fp-celkem">0 Kč</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Zaplaceno</span>
+          <span class="summary-item-value green" id="fp-zaplaceno">0 Kč</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Čeká na úhradu</span>
+          <span class="summary-item-value yellow" id="fp-ceka">0 Kč</span>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Č. dokladu</th>
+              <th>Datum</th>
+              <th>Splatnost</th>
+              <th>Dodavatel</th>
+              <th>Kategorie</th>
+              <th>Částka</th>
+              <th>Stav</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="fp-tbody">
+            <tr><td colspan="8"><div class="empty-state"><div class="empty-icon">📥</div><h3>Zatím žádné přijaté faktury</h3><p>Přidej faktury od dodavatelů za nákup zboží</p></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── ZÁSOBY ──────────────────────────────────────────── -->
+    <section class="section" id="zasoby">
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1>📦 Zásoby</h1>
+          <p>Evidence hodnoty skladu pro daňové účely (k 31.12.)</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-secondary btn-sm" onclick="exportCsv('zasoby')">⬇ Export CSV</button>
+          <button class="btn btn-primary" onclick="openModal('modal-zasoba')">+ Přidat zásobu</button>
+        </div>
+      </div>
+
+      <!-- Info box -->
+      <div style="background:var(--info-bg);border:1px solid var(--accent-border);border-radius:var(--radius-lg);padding:1rem 1.25rem;font-size:0.82rem;color:var(--text-secondary);">
+        <strong style="color:var(--accent);">ℹ️ K čemu slouží zásoby?</strong><br/>
+        Zásoby (neprodané zboží na skladě) snižují daňové výdaje na konci roku. K 31.12. musíš znát hodnotu skladu v pořizovacích cenách. Tato sekce slouží k evidenci toho, co je na skladě a za kolik bylo nakoupeno.
+      </div>
+
+      <div class="summary-bar">
+        <div class="summary-item">
+          <span class="summary-item-label">Počet položek</span>
+          <span class="summary-item-value blue" id="zasoby-pocet">0</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Celková hodnota skladu</span>
+          <span class="summary-item-value yellow" id="zasoby-hodnota">0 Kč</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Průměrná pořiz. cena</span>
+          <span class="summary-item-value" id="zasoby-prumer">0 Kč</span>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Název zboží</th>
+              <th>Datum nákupu</th>
+              <th>Množství</th>
+              <th>Poř. cena/ks</th>
+              <th>Celkem</th>
+              <th>Poznámka</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="zasoby-tbody">
+            <tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📦</div><h3>Zásoby jsou prázdné</h3><p>Přidej zboží, které je aktuálně na skladě</p></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── DLOUHODOBÝ MAJETEK ──────────────────────────────── -->
+    <section class="section" id="majetek">
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1>🏗️ Dlouhodobý majetek</h1>
+          <p>Hmotný majetek nad 80 000 Kč · nehmotný nad 60 000 Kč</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-primary" onclick="openModal('modal-majetek')">+ Přidat majetek</button>
+        </div>
+      </div>
+
+      <div style="background:var(--info-bg);border:1px solid var(--accent-border);border-radius:var(--radius-lg);padding:1rem 1.25rem;font-size:0.82rem;color:var(--text-secondary);">
+        <strong style="color:var(--accent);">ℹ️ Co patří do dlouhodobého majetku?</strong><br/>
+        Majetek pod limit (telefon za 15 000 Kč, notebook za 30 000 Kč) jde rovnou do výdajů v peněžním deníku. Sem patří dražší věci — např. profesionální kamera, auto, vybavení kanceláře nad 80 000 Kč. Tyto se <strong>odepisují postupně</strong> po více let.
+      </div>
+
+      <div class="summary-bar">
+        <div class="summary-item">
+          <span class="summary-item-label">Počet položek</span>
+          <span class="summary-item-value blue" id="majetek-pocet">0</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Pořizovací cena celkem</span>
+          <span class="summary-item-value" id="majetek-celkem">0 Kč</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Zůstatková cena</span>
+          <span class="summary-item-value yellow" id="majetek-zustatky">0 Kč</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Odpisy za rok</span>
+          <span class="summary-item-value red" id="majetek-odpisy-rok">0 Kč</span>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Název</th>
+              <th>Pořízeno</th>
+              <th>Poř. cena</th>
+              <th>Odp. skupina</th>
+              <th>Roční odpis</th>
+              <th>Zůstatk. cena</th>
+              <th>Stav</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="majetek-tbody">
+            <tr><td colspan="8"><div class="empty-state"><div class="empty-icon">🏗️</div><h3>Zatím žádný dlouhodobý majetek</h3><p>Majetek pod 80 000 Kč dej rovnou do výdajů v peněžním deníku</p></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── DAŇOVÝ PŘEHLED ──────────────────────────────────── -->
+    <section class="section" id="danovy-prehled">
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1>🧮 Daňový přehled</h1>
+          <p id="dp-subtitle">Výpočet základu daně pro daňové přiznání</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨 Tisk / PDF</button>
+        </div>
+      </div>
+
+      <!-- Hlavní výpočet -->
+      <div class="tax-box">
+        <div class="tax-box-title">📊 Základ daně z příjmů — výpočet</div>
+        <div class="tax-row">
+          <span class="tax-row-label">Zdanitelné příjmy (§ 7 ZDP)</span>
+          <span class="tax-row-value green" id="dp-prijmy">0 Kč</span>
+        </div>
+        <div class="tax-row">
+          <span class="tax-row-label">Daňově uznatelné výdaje</span>
+          <span class="tax-row-value red" id="dp-vydaje">− 0 Kč</span>
+        </div>
+        <div class="tax-row">
+          <span class="tax-row-label">Odpisy dlouhodobého majetku</span>
+          <span class="tax-row-value red" id="dp-odpisy">− 0 Kč</span>
+        </div>
+        <div class="tax-row">
+          <span class="tax-row-label">Hodnota zásob k 31.12. (snižuje výdaje)</span>
+          <span class="tax-row-value red" id="dp-zasoby">+ 0 Kč</span>
+        </div>
+        <div class="tax-row" style="padding-top:0.75rem;margin-top:0.25rem;border-top:1px solid var(--accent-border);">
+          <span class="tax-row-label" style="font-weight:700;color:var(--text-primary);font-size:0.95rem;">ZÁKLAD DANĚ</span>
+          <span class="tax-row-value accent" id="dp-zaklad" style="font-size:1.3rem;">0 Kč</span>
+        </div>
+      </div>
+
+      <!-- Kategorie příjmů -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">💰 Příjmy podle kategorií</span>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <table>
+            <thead>
+              <tr><th>Kategorie</th><th style="text-align:right;">Částka</th><th style="text-align:right;">% z celku</th></tr>
+            </thead>
+            <tbody id="dp-prijmy-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Kategorie výdajů -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">💸 Výdaje podle kategorií</span>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <table>
+            <thead>
+              <tr><th>Kategorie</th><th style="text-align:right;">Částka</th><th style="text-align:right;">% z celku</th></tr>
+            </thead>
+            <tbody id="dp-vydaje-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Měsíční přehled -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📅 Měsíční přehled</span>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <table>
+            <thead>
+              <tr><th>Měsíc</th><th style="text-align:right;">Příjmy</th><th style="text-align:right;">Výdaje</th><th style="text-align:right;">Rozdíl</th></tr>
+            </thead>
+            <tbody id="dp-mesice-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Upozornění na obrat -->
+      <div id="obrat-warning" style="display:none;background:var(--warning-bg);border:1px solid var(--warning-border);border-radius:var(--radius-lg);padding:1rem 1.25rem;font-size:0.85rem;color:var(--warning);">
+        <strong>⚠️ Pozor na obrat!</strong><br/>
+        <span id="obrat-warning-text"></span>
+      </div>
+    </section>
+
+    <!-- ── NASTAVENÍ ───────────────────────────────────────── -->
+    <section class="section" id="nastaveni">
+      <div class="page-header">
+        <div class="page-header-left">
+          <h1>⚙️ Nastavení</h1>
+          <p>Údaje o podnikání a konfigurace aplikace</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">👤 Údaje OSVČ</span></div>
+        <div class="card-body">
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Jméno a příjmení<span class="required">*</span></label>
+              <input type="text" class="form-control" id="set-jmeno" placeholder="Jan Novák" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">IČO<span class="required">*</span></label>
+              <input type="text" class="form-control" id="set-ico" placeholder="12345678" maxlength="8" />
+            </div>
+            <div class="form-group form-col-full">
+              <label class="form-label">Adresa (místo podnikání)</label>
+              <input type="text" class="form-control" id="set-adresa" placeholder="Ulice 123, 110 00 Praha 1" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Číslo bankovního účtu</label>
+              <input type="text" class="form-control" id="set-ucet" placeholder="1234567890/0100" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Živnostenský list - obor</label>
+              <input type="text" class="form-control" id="set-obor" placeholder="Velkoobchod a maloobchod" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Rok zahájení podnikání</label>
+              <input type="number" class="form-control" id="set-rok-zahajeni" placeholder="2026" min="2020" max="2030" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Počáteční stav hotovosti (Kč)</label>
+              <input type="number" class="form-control" id="set-pocat-hotovost" placeholder="0" min="0" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Počáteční stav bank. účtu (Kč)</label>
+              <input type="number" class="form-control" id="set-pocat-bank" placeholder="0" min="0" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Počáteční stav Revolut (Kč)</label>
+              <input type="number" class="form-control" id="set-pocat-revolut" placeholder="0" min="0" />
+            </div>
+          </div>
+        </div>
+        <div class="card-footer" style="display:flex;justify-content:flex-end;">
+          <button class="btn btn-primary" onclick="saveNastaveni()">💾 Uložit nastavení</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">📊 Informace o aplikaci</span></div>
+        <div class="card-body" style="font-size:0.82rem;color:var(--text-secondary);display:flex;flex-direction:column;gap:0.5rem;">
+          <p>📌 <strong style="color:var(--text-primary);">Zákon:</strong> § 7b zákona č. 586/1992 Sb. (zákon o daních z příjmů)</p>
+          <p>📌 <strong style="color:var(--text-primary);">Typ subjektu:</strong> OSVČ — fyzická osoba, neplátce DPH</p>
+          <p>📌 <strong style="color:var(--text-primary);">Evidované:</strong> Peněžní deník, faktury, zásoby, dlouhodobý majetek</p>
+          <p>📌 <strong style="color:var(--text-primary);">Limit obratu pro DPH:</strong> 2 000 000 Kč/rok</p>
+          <p>📌 <strong style="color:var(--text-primary);">Limit hmotného majetku:</strong> 80 000 Kč (od r. 2024)</p>
+          <p>📌 <strong style="color:var(--text-primary);">Verze:</strong> 1.0.0</p>
+        </div>
+      </div>
+    </section>
+
+  </main><!-- /main-content -->
+</div><!-- /app -->
+
+<!-- ══════════════════════════════════════════════════════
+     MODALS
+═══════════════════════════════════════════════════════ -->
+
+<!-- Modal: Nový záznam do deníku -->
+<div class="modal-overlay" id="modal-transakce">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-transakce-title">📒 Nový záznam</span>
+      <button class="modal-close" onclick="closeModal('modal-transakce')">✕</button>
+    </div>
+    <div class="modal-body">
+      <!-- Typ: příjem / výdej -->
+      <div class="form-group">
+        <label class="form-label">Typ záznamu<span class="required">*</span></label>
+        <div class="type-toggle">
+          <button type="button" class="type-toggle-btn active-income" id="toggle-prijem" onclick="setTransakceTyp('prijem')">
+            ↑ Příjem
+          </button>
+          <button type="button" class="type-toggle-btn" id="toggle-vydej" onclick="setTransakceTyp('vydej')">
+            ↓ Výdaj
+          </button>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Datum<span class="required">*</span></label>
+          <input type="date" class="form-control" id="t-datum" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Číslo dokladu</label>
+          <input type="text" class="form-control" id="t-doklad" placeholder="např. 2026001" />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Popis<span class="required">*</span></label>
+        <input type="text" class="form-control" id="t-popis" placeholder="např. Prodej tenisek Nike Air Max" />
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Kategorie<span class="required">*</span></label>
+          <select class="form-control" id="t-kategorie"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Účet<span class="required">*</span></label>
+          <select class="form-control" id="t-ucet">
+            <option value="hotovost">💵 Hotovost</option>
+            <option value="bank">🏦 Podnikatelský účet</option>
+            <option value="revolut">💳 Revolut Business</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Částka (Kč)<span class="required">*</span></label>
+        <input type="number" class="form-control" id="t-castka" placeholder="0" min="0" step="0.01" />
+      </div>
+
+      <div class="form-group" id="t-zdanitelny-row">
+        <label class="form-label" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+          <input type="checkbox" id="t-zdanitelny" checked style="accent-color:var(--accent);width:15px;height:15px;" />
+          <span>Ovlivňuje základ daně (zdanitelný příjem / daňový výdaj)</span>
+        </label>
+        <div class="form-hint">Odškrtni pro vklady z osobního účtu, výběry pro osobní potřebu, půjčky</div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Poznámka</label>
+        <textarea class="form-control" id="t-poznamka" placeholder="Volitelná poznámka..." rows="2"></textarea>
+      </div>
+
+      <input type="hidden" id="t-id" />
+      <input type="hidden" id="t-typ" value="prijem" />
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-transakce')">Zrušit</button>
+      <button class="btn btn-primary" onclick="saveTransakce()">💾 Uložit záznam</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Faktura vydaná -->
+<div class="modal-overlay" id="modal-faktura-vydana">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-fv-title">📄 Nová faktura vydaná</span>
+      <button class="modal-close" onclick="closeModal('modal-faktura-vydana')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Číslo faktury<span class="required">*</span></label>
+          <input type="text" class="form-control" id="fv-cislo" placeholder="2026001" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Datum vystavení<span class="required">*</span></label>
+          <input type="date" class="form-control" id="fv-datum" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Datum splatnosti<span class="required">*</span></label>
+          <input type="date" class="form-control" id="fv-splatnost" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">DUZP (datum plnění)</label>
+          <input type="date" class="form-control" id="fv-duzp" />
+        </div>
+      </div>
+
+      <div style="background:var(--bg-tertiary);border-radius:var(--radius);padding:1rem;margin:0.25rem 0;">
+        <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-bottom:0.75rem;">Odběratel</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Název / Jméno<span class="required">*</span></label>
+            <input type="text" class="form-control" id="fv-odberatel" placeholder="Firma s.r.o. / Jan Novák" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">IČO</label>
+            <input type="text" class="form-control" id="fv-ico" placeholder="12345678" maxlength="8" />
+          </div>
+          <div class="form-group form-col-full">
+            <label class="form-label">Adresa</label>
+            <input type="text" class="form-control" id="fv-adresa-odb" placeholder="Ulice 1, 110 00 Praha 1" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Položky faktury -->
+      <div class="form-group">
+        <label class="form-label">Položky faktury<span class="required">*</span></label>
+        <table class="items-table" id="fv-items-table">
+          <thead>
+            <tr>
+              <th style="width:45%;">Popis</th>
+              <th style="width:12%;">Množství</th>
+              <th style="width:20%;">Cena/ks (Kč)</th>
+              <th style="width:18%;text-align:right;">Celkem</th>
+              <th style="width:5%;"></th>
+            </tr>
+          </thead>
+          <tbody id="fv-items-body"></tbody>
+        </table>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="addFvItem()" style="margin-top:0.5rem;">+ Přidat položku</button>
+      </div>
+
+      <div class="invoice-total-row">
+        <span class="invoice-total-label">CELKEM K ÚHRADĚ:</span>
+        <span class="invoice-total-value" id="fv-total-display">0,00 Kč</span>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Způsob platby</label>
+          <select class="form-control" id="fv-platba">
+            <option value="prevod">Převodem</option>
+            <option value="hotovost">Hotovostí</option>
+            <option value="karta">Kartou</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Stav</label>
+          <select class="form-control" id="fv-stav-modal">
+            <option value="nezaplaceno">Nezaplaceno</option>
+            <option value="zaplaceno">Zaplaceno</option>
+          </select>
+        </div>
+        <div class="form-group" id="fv-datum-zaplaceni-row">
+          <label class="form-label">Datum zaplacení</label>
+          <input type="date" class="form-control" id="fv-datum-zaplaceni" />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Poznámka</label>
+        <textarea class="form-control" id="fv-poznamka" placeholder="Proforma, záloha apod." rows="2"></textarea>
+      </div>
+
+      <input type="hidden" id="fv-id" />
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-faktura-vydana')">Zrušit</button>
+      <button class="btn btn-primary" onclick="saveFakturaVydana()">💾 Uložit fakturu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Faktura přijatá -->
+<div class="modal-overlay" id="modal-faktura-prijata">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-fp-title">📥 Nová přijatá faktura</span>
+      <button class="modal-close" onclick="closeModal('modal-faktura-prijata')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Číslo dokladu<span class="required">*</span></label>
+          <input type="text" class="form-control" id="fp-cislo" placeholder="Číslo z faktury dodavatele" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Datum přijetí<span class="required">*</span></label>
+          <input type="date" class="form-control" id="fp-datum" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Datum splatnosti</label>
+          <input type="date" class="form-control" id="fp-splatnost" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Dodavatel<span class="required">*</span></label>
+          <input type="text" class="form-control" id="fp-dodavatel" placeholder="Název firmy / dodavatele" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">IČO dodavatele</label>
+          <input type="text" class="form-control" id="fp-ico" placeholder="12345678" maxlength="8" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Kategorie výdaje<span class="required">*</span></label>
+          <select class="form-control" id="fp-kategorie-modal"></select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Popis<span class="required">*</span></label>
+        <input type="text" class="form-control" id="fp-popis" placeholder="Co bylo fakturováno" />
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Částka (Kč)<span class="required">*</span></label>
+          <input type="number" class="form-control" id="fp-castka" placeholder="0" min="0" step="0.01" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Účet úhrady</label>
+          <select class="form-control" id="fp-ucet">
+            <option value="bank">🏦 Podnikatelský účet</option>
+            <option value="revolut">💳 Revolut Business</option>
+            <option value="hotovost">💵 Hotovost</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Stav</label>
+          <select class="form-control" id="fp-stav-modal">
+            <option value="nezaplaceno">Nezaplaceno</option>
+            <option value="zaplaceno">Zaplaceno</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Datum zaplacení</label>
+          <input type="date" class="form-control" id="fp-datum-zaplaceni" />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Poznámka</label>
+        <textarea class="form-control" id="fp-poznamka" rows="2" placeholder="Volitelná poznámka..."></textarea>
+      </div>
+
+      <input type="hidden" id="fp-id" />
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-faktura-prijata')">Zrušit</button>
+      <button class="btn btn-primary" onclick="saveFakturaPrijata()">💾 Uložit fakturu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Zásoby -->
+<div class="modal-overlay" id="modal-zasoba">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-zasoba-title">📦 Přidat zásobu</span>
+      <button class="modal-close" onclick="closeModal('modal-zasoba')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Název zboží<span class="required">*</span></label>
+        <input type="text" class="form-control" id="z-nazev" placeholder="např. Nike Air Max 90 vel. 42" />
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Datum nákupu<span class="required">*</span></label>
+          <input type="date" class="form-control" id="z-datum" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Množství (ks)<span class="required">*</span></label>
+          <input type="number" class="form-control" id="z-mnozstvi" placeholder="1" min="1" step="1" value="1" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Pořizovací cena/ks (Kč)<span class="required">*</span></label>
+          <input type="number" class="form-control" id="z-cena" placeholder="0" min="0" step="0.01" oninput="updateZasobaCelkem()" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Celková cena (Kč)</label>
+          <input type="number" class="form-control" id="z-celkem" placeholder="0" readonly style="opacity:0.6;cursor:not-allowed;" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Poznámka</label>
+        <textarea class="form-control" id="z-poznamka" rows="2" placeholder="Zdroj nákupu, detail..."></textarea>
+      </div>
+      <input type="hidden" id="z-id" />
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-zasoba')">Zrušit</button>
+      <button class="btn btn-primary" onclick="saveZasoba()">💾 Uložit zásobu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Dlouhodobý majetek -->
+<div class="modal-overlay" id="modal-majetek">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-majetek-title">🏗️ Nový majetek</span>
+      <button class="modal-close" onclick="closeModal('modal-majetek')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Název majetku<span class="required">*</span></label>
+        <input type="text" class="form-control" id="m-nazev" placeholder="např. MacBook Pro 16'" />
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Datum pořízení<span class="required">*</span></label>
+          <input type="date" class="form-control" id="m-datum" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Pořizovací cena (Kč)<span class="required">*</span></label>
+          <input type="number" class="form-control" id="m-cena" placeholder="0" min="0" step="0.01" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Odpisová skupina<span class="required">*</span></label>
+          <select class="form-control" id="m-skupina">
+            <option value="1">1 — 3 roky (počítače, fotoaparáty)</option>
+            <option value="2" selected>2 — 5 let (auta, stroje)</option>
+            <option value="3">3 — 10 let (klimatizace)</option>
+            <option value="4">4 — 20 let (budovy dřevěné)</option>
+            <option value="5">5 — 30 let (budovy zděné)</option>
+            <option value="6">6 — 50 let (hotely)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Metoda odpisování</label>
+          <select class="form-control" id="m-metoda">
+            <option value="rovnomerne">Rovnoměrné</option>
+            <option value="zrychlene">Zrychlené</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Popis / poznámka</label>
+        <textarea class="form-control" id="m-popis" rows="2" placeholder="Sériové číslo, účel využití..."></textarea>
+      </div>
+      <input type="hidden" id="m-id" />
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-majetek')">Zrušit</button>
+      <button class="btn btn-primary" onclick="saveMajetek()">💾 Uložit majetek</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Potvrzení smazání -->
+<div class="modal-overlay" id="modal-delete">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-header">
+      <span class="modal-title">🗑 Smazat záznam?</span>
+      <button class="modal-close" onclick="closeModal('modal-delete')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--text-primary);" id="delete-text">Opravdu chceš smazat tento záznam? Tato akce je nevratná.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-delete')">Zrušit</button>
+      <button class="btn btn-danger" id="btn-confirm-delete">🗑 Smazat</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── TOAST CONTAINER ────────────────────────────────────── -->
+<div id="toast-container"></div>
+
+<!-- ══════════════════════════════════════════════════════
+     SCRIPTS
+═══════════════════════════════════════════════════════ -->
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import {
+    getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import {
+    getFirestore, collection, doc, addDoc, updateDoc, deleteDoc,
+    getDocs, query, where, orderBy, onSnapshot, setDoc, getDoc
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  // Import config
+  // Dynamicky importujeme config - pokud firebase-config.js neexistuje,
+  // app zobrazí chybovou hlášku s návodem
+  let firebaseConfig;
+  try {
+    const mod = await import('./firebase-config.js');
+    firebaseConfig = mod.firebaseConfig || mod.default;
+  } catch(e) {
+    document.getElementById('login-screen').innerHTML = `
+      <div class="login-card">
+        <div style="text-align:center;">
+          <div style="font-size:2rem;margin-bottom:1rem;">⚠️</div>
+          <h2 style="margin-bottom:0.75rem;">Firebase není nakonfigurovaný</h2>
+          <p style="font-size:0.82rem;margin-bottom:1rem;">Uprav soubor <code style="background:var(--bg-tertiary);padding:2px 6px;border-radius:4px;">firebase-config.js</code> a vlož své Firebase údaje.</p>
+          <p style="font-size:0.75rem;color:var(--text-muted);">Viz instrukce v souboru firebase-config.js</p>
+        </div>
+      </div>`;
+    throw new Error('Firebase config missing');
+  }
+
+  if (!firebaseConfig || firebaseConfig.apiKey === 'TVUJ-API-KEY') {
+    document.getElementById('login-screen').innerHTML = `
+      <div class="login-card">
+        <div style="text-align:center;">
+          <div style="font-size:2rem;margin-bottom:1rem;">⚙️</div>
+          <h2 style="margin-bottom:0.75rem;">Nastav Firebase</h2>
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.75rem;">Otevři soubor <code style="background:var(--bg-tertiary);padding:2px 6px;border-radius:4px;">firebase-config.js</code> a vyplň své Firebase údaje z konzole.</p>
+          <a href="https://console.firebase.google.com" target="_blank" class="btn btn-primary" style="margin-top:0.5rem;">Otevřít Firebase konzoli →</a>
+        </div>
+      </div>`;
+    throw new Error('Firebase config not filled');
+  }
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  // Expose to window so app.js can access
+  window._firebase = { auth, db, signInWithEmailAndPassword, signOut, onAuthStateChanged,
+    collection, doc, addDoc, updateDoc, deleteDoc, getDocs, query, where, orderBy,
+    onSnapshot, setDoc, getDoc };
+
+  // Dynamically load app.js after Firebase is ready
+  const script = document.createElement('script');
+  script.src = 'app.js';
+  document.body.appendChild(script);
+</script>
+
+</body>
+</html>
