@@ -1,23 +1,10 @@
-// ============================================================
-// FIREBASE KONFIGURACE - vyplň svými údaji z Firebase konzole
-// ============================================================
-// Jak získat údaje:
-// 1. Jdi na https://console.firebase.google.com
-// 2. Vytvoř nový projekt (např. "danova-evidence")
-// 3. Klikni na ikonu </> (Web app) pro přidání webové aplikace
-// 4. Zkopíruj firebaseConfig objekt a nahraď hodnoty níže
-// 5. V Firebase konzoli povol:
-//    - Authentication > Sign-in method > Email/Password
-//    - Firestore Database > Create database (production mode)
-// ============================================================
-
 const firebaseConfig = {
-  apiKey: "TVUJ-API-KEY",
-  authDomain: "TVUJ-PROJEKT.firebaseapp.com",
-  projectId: "TVUJ-PROJEKT-ID",
-  storageBucket: "TVUJ-PROJEKT.appspot.com",
-  messagingSenderId: "TVOJE-SENDER-ID",
-  appId: "TVOJE-APP-ID"
+  apiKey: "AIzaSyCtFKTMIXLIj5J0egOs9NBiM9ixUyTQ1tc",
+  authDomain: "danova-evidence.firebaseapp.com",
+  projectId: "danova-evidence",
+  storageBucket: "danova-evidence.firebasestorage.app",
+  messagingSenderId: "400201665276",
+  appId: "1:400201665276:web:39bbd54903fa3f59d32579"
 };
 
 // Firestore pravidla (nastav v Firebase konzoli > Firestore > Rules):
