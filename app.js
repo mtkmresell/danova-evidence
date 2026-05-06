@@ -496,6 +496,7 @@ function renderFakturyVydane() {
       <td>${stavBadge}</td>
       <td class="td-actions">
         <button class="btn btn-ghost btn-icon" onclick="editFakturaVydana('${f.id}')" title="Upravit">✏️</button>
+        <button class="btn btn-ghost btn-icon" onclick="exportIsdoc('${f.id}')" title="Stáhnout ISDOC (XML faktura)">📄</button>
         ${f.stav!=='zaplaceno' ? `<button class="btn btn-ghost btn-icon" onclick="markFakturaPaid('vydane','${f.id}')" title="Označit jako zaplaceno">✅</button>` : ''}
         <button class="btn btn-ghost btn-icon" onclick="confirmDelete('fakturyVydane','${f.id}','fakturu')" title="Smazat">🗑</button>
       </td>
@@ -1282,6 +1283,164 @@ function exportCsv(type) {
   showToast('Export CSV stažen','success');
 }
 window.exportCsv = exportCsv;
+
+// ── EXPORT XML (peněžní deník) ────────────────────────────────
+function exportXml(type) {
+  const rok = String(state.rok);
+  let xml, filename;
+
+  if (type === 'denik') {
+    const s = state.nastaveni;
+    const txList = txByRok(rok);
+    const prijmyZd = sumTx(txList, 'prijem', true);
+    const vydajeZd = sumTx(txList, 'vydej', true);
+    xml = `<?xml version="1.0" encoding="UTF-8"?>
+<DanovaEvidence rok="${rok}" exportDatum="${new Date().toISOString().slice(0,10)}">
+  <Podnikatel>
+    <Jmeno>${xmlEsc(s.jmeno||'')}</Jmeno>
+    <ICO>${xmlEsc(s.ico||'')}</ICO>
+    <Adresa>${xmlEsc(s.adresa||'')}</Adresa>
+  </Podnikatel>
+  <Souhrn>
+    <PrijmyZdanitelne>${prijmyZd.toFixed(2)}</PrijmyZdanitelne>
+    <VydajeZdanitelne>${vydajeZd.toFixed(2)}</VydajeZdanitelne>
+    <ZakladDane>${(prijmyZd - vydajeZd).toFixed(2)}</ZakladDane>
+  </Souhrn>
+  <Zaznamy>
+${txList.map(t => `    <Zaznam>
+      <Datum>${t.datum||''}</Datum>
+      <Doklad>${xmlEsc(t.doklad||'')}</Doklad>
+      <Popis>${xmlEsc(t.popis||'')}</Popis>
+      <Typ>${t.typ === 'prijem' ? 'Příjem' : 'Výdej'}</Typ>
+      <Kategorie>${xmlEsc(getCatLabel(t.kategorie, t.typ))}</Kategorie>
+      <Ucet>${t.ucet||''}</Ucet>
+      <Castka>${Number(t.castka||0).toFixed(2)}</Castka>
+      <Zdanitelny>${t.zdanitelny ? 'true' : 'false'}</Zdanitelny>
+    </Zaznam>`).join('\n')}
+  </Zaznamy>
+</DanovaEvidence>`;
+    filename = `penezni-denik-${rok}.xml`;
+  }
+
+  downloadXml(xml, filename);
+  showToast('Export XML stažen', 'success');
+}
+window.exportXml = exportXml;
+
+// ── EXPORT ISDOC (faktura vydaná) ─────────────────────────────
+function exportIsdoc(id) {
+  const f = state.fakturyVydane.find(x => x.id === id);
+  if (!f) return;
+  const s = state.nastaveni;
+  const polozky = (f.polozky || []).filter(p => p.popis?.trim());
+  const celkem = Number(f.celkem || 0);
+
+  const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+
+  const linky = polozky.map((p, i) => {
+    const castka = Number((p.mnozstvi || 1) * (p.cena || 0)).toFixed(2);
+    return `    <InvoiceLine>
+      <ID>${i + 1}</ID>
+      <InvoicedQuantity unitCode="C62">${p.mnozstvi || 1}</InvoicedQuantity>
+      <LineExtensionAmount>${castka}</LineExtensionAmount>
+      <LineExtensionAmountTaxInclusive>${castka}</LineExtensionAmountTaxInclusive>
+      <LineExtensionTaxAmount>0.00</LineExtensionTaxAmount>
+      <UnitPrice>${Number(p.cena || 0).toFixed(2)}</UnitPrice>
+      <UnitPriceTaxInclusive>${Number(p.cena || 0).toFixed(2)}</UnitPriceTaxInclusive>
+      <Item>
+        <Description>${xmlEsc(p.popis)}</Description>
+      </Item>
+    </InvoiceLine>`;
+  }).join('\n');
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="http://isdoc.cz/namespace/2013" version="6.0.2">
+  <DocumentType>1</DocumentType>
+  <ID>${xmlEsc(f.cislo)}</ID>
+  <UUID>${uuid}</UUID>
+  <IssueDate>${f.datum}</IssueDate>
+  <TaxPointDate>${f.duzp || f.datum}</TaxPointDate>
+  <LocalCurrencyCode>CZK</LocalCurrencyCode>
+  <CurrRate>1</CurrRate>
+  <RefCurrRate>1</RefCurrRate>
+  <AccountingSupplierParty>
+    <Party>
+      <PartyIdentification>
+        <ID>${xmlEsc(s.ico||'')}</ID>
+      </PartyIdentification>
+      <PartyName>
+        <Name>${xmlEsc(s.jmeno||'')}</Name>
+      </PartyName>
+      <PostalAddress>
+        <StreetName>${xmlEsc(s.adresa||'')}</StreetName>
+        <Country>
+          <IdentificationCode>CZ</IdentificationCode>
+        </Country>
+      </PostalAddress>
+    </Party>
+  </AccountingSupplierParty>
+  <AccountingCustomerParty>
+    <Party>
+      <PartyIdentification>
+        <ID>${xmlEsc(f.ico||'')}</ID>
+      </PartyIdentification>
+      <PartyName>
+        <Name>${xmlEsc(f.odberatel||'')}</Name>
+      </PartyName>
+      <PostalAddress>
+        <StreetName>${xmlEsc(f.adresaOdberatele||'')}</StreetName>
+        <Country>
+          <IdentificationCode>CZ</IdentificationCode>
+        </Country>
+      </PostalAddress>
+    </Party>
+  </AccountingCustomerParty>
+  <InvoiceLines>
+${linky}
+  </InvoiceLines>
+  <TaxTotal>
+    <TaxAmount>0.00</TaxAmount>
+    <TaxSubTotal>
+      <TaxableAmount>${celkem.toFixed(2)}</TaxableAmount>
+      <TaxInclusiveAmount>${celkem.toFixed(2)}</TaxInclusiveAmount>
+      <TaxAmount>0.00</TaxAmount>
+      <TaxCategory>
+        <Percent>0</Percent>
+        <VATApplicable>false</VATApplicable>
+      </TaxCategory>
+    </TaxSubTotal>
+  </TaxTotal>
+  <LegalMonetaryTotal>
+    <TaxExclusiveAmount>${celkem.toFixed(2)}</TaxExclusiveAmount>
+    <TaxInclusiveAmount>${celkem.toFixed(2)}</TaxInclusiveAmount>
+    <AlreadyClaimedTaxExclusiveAmount>0.00</AlreadyClaimedTaxExclusiveAmount>
+    <AlreadyClaimedTaxInclusiveAmount>0.00</AlreadyClaimedTaxInclusiveAmount>
+    <DifferenceTaxExclusiveAmount>${celkem.toFixed(2)}</DifferenceTaxExclusiveAmount>
+    <DifferenceTaxInclusiveAmount>${celkem.toFixed(2)}</DifferenceTaxInclusiveAmount>
+    <PayableRoundingAmount>0.00</PayableRoundingAmount>
+    <PaidDepositsAmount>0.00</PaidDepositsAmount>
+    <PayableAmount>${celkem.toFixed(2)}</PayableAmount>
+  </LegalMonetaryTotal>
+</Invoice>`;
+
+  downloadXml(xml, `faktura-${f.cislo}.isdoc`);
+  showToast('ISDOC faktura stažena', 'success');
+}
+window.exportIsdoc = exportIsdoc;
+
+function downloadXml(xml, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([xml], { type: 'application/xml;charset=utf-8;' }));
+  a.download = filename;
+  a.click();
+}
+
+function xmlEsc(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
 
 // ── TOAST ─────────────────────────────────────────────────────
 function showToast(msg, type='info') {
