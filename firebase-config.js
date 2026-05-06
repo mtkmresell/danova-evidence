@@ -1,4 +1,4 @@
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyCtFKTMIXLIj5J0egOs9NBiM9ixUyTQ1tc",
   authDomain: "danova-evidence.firebaseapp.com",
   projectId: "danova-evidence",
