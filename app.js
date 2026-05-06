@@ -67,7 +67,7 @@ function docRef(colName, id) {
 }
 
 // ── AUTH ──────────────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => {
+function initAuth() {
   const { auth, onAuthStateChanged } = window._firebase;
   onAuthStateChanged(auth, user => {
     if (user) {
@@ -108,7 +108,8 @@ window.addEventListener('DOMContentLoaded', () => {
     await signOut(auth);
     showToast('Odhlášen/a', 'info');
   });
-});
+}
+initAuth();
 
 function loginErrMsg(code) {
   const map = {
@@ -1337,7 +1338,5 @@ function accountIcon(ucet) {
 }
 
 // Pridaj event listener na z-mnozstvi vo formulari
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('z-mnozstvi')?.addEventListener('input', updateZasobaCelkem);
-  document.getElementById('z-cena')?.addEventListener('input', updateZasobaCelkem);
-});
+document.getElementById('z-mnozstvi')?.addEventListener('input', updateZasobaCelkem);
+document.getElementById('z-cena')?.addEventListener('input', updateZasobaCelkem);
