@@ -717,6 +717,37 @@
         </div>
       </div>
 
+      <div class="card" id="sklad-sync-card">
+        <div class="card-header">
+          <span class="card-title">🔗 Propojení se SKLAD.</span>
+          <span id="sklad-sync-badge" style="display:none;" class="badge badge-income">Aktivní</span>
+        </div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:1rem;">
+          <p style="font-size:0.82rem;">Nové položky přidané do aplikace SKLAD. se automaticky zapíší jako výdaj (Nákup zboží) do Peněžního deníku.</p>
+          <div id="sklad-disconnected">
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label">Heslo SKLAD. <span class="form-hint">(stejné jako zde)</span></label>
+                <input type="password" class="form-control" id="sklad-pwd" placeholder="••••••••" autocomplete="current-password" />
+              </div>
+              <div class="form-group" style="align-self:flex-end;">
+                <button class="btn btn-primary" onclick="connectSklad()">🔗 Propojit se SKLAD.</button>
+              </div>
+            </div>
+            <div id="sklad-connect-err" style="display:none;font-size:0.8rem;color:var(--danger);margin-top:0.5rem;"></div>
+          </div>
+          <div id="sklad-connected" style="display:none;">
+            <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+              <div style="flex:1;">
+                <p style="font-size:0.82rem;color:var(--success);font-weight:600;">✅ Propojeno</p>
+                <p id="sklad-sync-info" style="font-size:0.78rem;"></p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="disconnectSklad()">Odpojit</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header"><span class="card-title">📊 Informace o aplikaci</span></div>
         <div class="card-body" style="font-size:0.82rem;color:var(--text-secondary);display:flex;flex-direction:column;gap:0.5rem;">
@@ -1131,6 +1162,20 @@
     getFirestore, collection, doc, addDoc, updateDoc, deleteDoc,
     getDocs, query, where, orderBy, onSnapshot, setDoc, getDoc
   } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  // SKLAD. secondary Firebase app
+  const SKLAD_CONFIG = {
+    apiKey: "AIzaSyDS1e4Y3LfglhKsLryxJZYqrfMSCZ9evnU",
+    authDomain: "sklad-7eec9.firebaseapp.com",
+    projectId: "sklad-7eec9",
+    storageBucket: "sklad-7eec9.firebasestorage.app",
+    messagingSenderId: "978342647647746",
+    appId: "1:978342647746:web:7d783621becbd45b09685b"
+  };
+  const skladApp  = initializeApp(SKLAD_CONFIG, 'sklad');
+  const skladAuth = getAuth(skladApp);
+  const skladDb   = getFirestore(skladApp);
+  window._sklad = { skladAuth, skladDb, signInWithEmailAndPassword, onAuthStateChanged, onSnapshot, doc };
 
   // Import config
   // Dynamicky importujeme config - pokud firebase-config.js neexistuje,
