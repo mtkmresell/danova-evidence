@@ -1604,7 +1604,7 @@ function _startSkladListener(skladUid) {
       }
 
       // Nové prodeje (paid položky, které ještě nejsou v syncedSale)
-      const newSales = items.filter(i => i.id && i.saleState === 'paid' && !syncedSale.includes(i.id) && Number(i.sellPrice) > 0);
+      const newSales = items.filter(i => i.id && i.saleState === 'paid' && !syncedSale.includes(i.id));
       for (const item of newSales) {
         await _syncSkladSale(item);
         syncedSale.push(item.id);
