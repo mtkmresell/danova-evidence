@@ -174,6 +174,7 @@ function buildYearSelector() {
     if (y === state.rok) opt.selected = true;
     sel.appendChild(opt);
   }
+  if (sel._cs) sel._cs.updateLabel();
   sel.addEventListener('change', () => {
     state.rok = parseInt(sel.value);
     refreshAll();
@@ -190,6 +191,7 @@ function fillCategorySelect(id, cats) {
     opt.textContent = c.zdanitelny ? c.label : `⚪ ${c.label}`;
     sel.appendChild(opt);
   });
+  if (sel._cs) sel._cs.updateLabel();
 }
 
 function fillExpenseCategorySelect(id, cats) {
@@ -212,6 +214,7 @@ function fillExpenseCategorySelect(id, cats) {
       opt.textContent = c.label;
       filter.appendChild(opt);
     });
+    if (filter._cs) filter._cs.updateLabel();
   }
 }
 
@@ -1469,7 +1472,10 @@ function getVal(id) {
 
 function setVal(id, val) {
   const el = document.getElementById(id);
-  if (el) el.value = val;
+  if (!el) return;
+  el.value = val;
+  if (el._cs) el._cs.updateLabel();
+  if (el._dp) el._dp.updateTrigger();
 }
 
 function esc(str) {
@@ -1495,6 +1501,217 @@ function accountIcon(ucet) {
   const icons = { hotovost:'💵 Hotovost', bank:'🏦 Banka', revolut:'💳 Revolut' };
   return `<span class="account-badge">${icons[ucet]||ucet}</span>`;
 }
+
+// ── CUSTOM SELECT ─────────────────────────────────────────────
+class CustomSelect {
+  constructor(selectEl) {
+    this.select = selectEl;
+    selectEl._cs = this;
+    this._build();
+  }
+
+  _variant() {
+    if (this.select.classList.contains('form-control')) return 'cs-fc';
+    if (this.select.classList.contains('filter-select')) return 'cs-fs';
+    return 'cs-sidebar';
+  }
+
+  _build() {
+    const wrap = document.createElement('div');
+    wrap.className = `cs-wrapper ${this._variant()}`;
+
+    const trigger = document.createElement('div');
+    trigger.className = 'cs-trigger';
+
+    const label = document.createElement('span');
+    label.className = 'cs-label';
+
+    const arrow = document.createElement('span');
+    arrow.className = 'cs-arrow';
+    arrow.innerHTML = `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M7.247 11.14L2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/></svg>`;
+
+    trigger.append(label, arrow);
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'cs-dropdown';
+
+    wrap.append(trigger, dropdown);
+    this.select.after(wrap);
+    this.select.style.display = 'none';
+
+    this._wrap = wrap;
+    this._label = label;
+    this._dropdown = dropdown;
+
+    this.updateLabel();
+
+    trigger.addEventListener('click', e => { e.stopPropagation(); this._toggle(); });
+  }
+
+  updateLabel() {
+    const opt = this.select.options[this.select.selectedIndex];
+    if (opt) {
+      this._label.textContent = opt.text;
+      this._label.classList.toggle('cs-placeholder', !opt.value);
+    }
+  }
+
+  _buildOptions() {
+    this._dropdown.innerHTML = '';
+    Array.from(this.select.options).forEach(opt => {
+      const div = document.createElement('div');
+      div.className = 'cs-option' +
+        (opt.value === this.select.value ? ' cs-selected' : '') +
+        (!opt.value ? ' cs-placeholder-opt' : '');
+      div.textContent = opt.text;
+      div.addEventListener('click', e => {
+        e.stopPropagation();
+        this.select.value = opt.value;
+        this.select.dispatchEvent(new Event('change', { bubbles: true }));
+        this.updateLabel();
+        this._close();
+      });
+      this._dropdown.appendChild(div);
+    });
+  }
+
+  _open() {
+    document.querySelectorAll('.cs-wrapper.cs-open, .dp-wrapper.dp-open').forEach(w => w.classList.remove('cs-open', 'dp-open'));
+    this._buildOptions();
+    this._wrap.classList.add('cs-open');
+    const rect = this._wrap.getBoundingClientRect();
+    this._dropdown.classList.toggle('cs-dropdown-up', window.innerHeight - rect.bottom < 260 && rect.top > 260);
+  }
+
+  _close() { this._wrap.classList.remove('cs-open'); }
+  _toggle() { this._wrap.classList.contains('cs-open') ? this._close() : this._open(); }
+}
+
+// ── CUSTOM DATE PICKER ────────────────────────────────────────
+const MONTHS_CZ = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
+const DAYS_CZ   = ['Po','Út','St','Čt','Pá','So','Ne'];
+
+class CustomDatePicker {
+  constructor(inputEl) {
+    this.input = inputEl;
+    inputEl._dp = this;
+    this._vm = null;
+    this._vy = null;
+    this._build();
+  }
+
+  _build() {
+    const wrap = document.createElement('div');
+    wrap.className = 'dp-wrapper';
+
+    const trigger = document.createElement('div');
+    trigger.className = 'dp-trigger';
+    trigger.innerHTML = `<svg class="dp-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z"/></svg><span class="dp-value dp-empty">Vyberte datum</span>`;
+
+    const cal = document.createElement('div');
+    cal.className = 'dp-calendar';
+
+    wrap.append(trigger, cal);
+    this.input.after(wrap);
+    this.input.style.display = 'none';
+
+    this._wrap = wrap;
+    this._valEl = trigger.querySelector('.dp-value');
+    this._cal = cal;
+
+    this.updateTrigger();
+    trigger.addEventListener('click', e => { e.stopPropagation(); this._toggle(); });
+  }
+
+  updateTrigger() {
+    const v = this.input.value;
+    if (v) {
+      const [y, m, d] = v.split('-');
+      this._valEl.textContent = `${parseInt(d)}. ${parseInt(m)}. ${y}`;
+      this._valEl.classList.remove('dp-empty');
+    } else {
+      this._valEl.textContent = 'Vyberte datum';
+      this._valEl.classList.add('dp-empty');
+    }
+  }
+
+  _render() {
+    const today = todayStr();
+    const sel   = this.input.value;
+    const ref   = sel ? new Date(sel) : new Date();
+    if (this._vm === null) { this._vm = ref.getMonth(); this._vy = ref.getFullYear(); }
+
+    const first = new Date(this._vy, this._vm, 1);
+    const last  = new Date(this._vy, this._vm + 1, 0);
+    let dow = first.getDay() - 1; if (dow < 0) dow = 6;
+
+    let cells = DAYS_CZ.map(d => `<div class="dp-day-name">${d}</div>`).join('');
+    for (let i = 0; i < dow; i++) cells += `<div class="dp-cell dp-empty"></div>`;
+    for (let d = 1; d <= last.getDate(); d++) {
+      const ds = `${this._vy}-${String(this._vm+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      cells += `<div class="dp-cell${ds===sel?' dp-selected':''}${ds===today?' dp-today':''}" data-date="${ds}">${d}</div>`;
+    }
+
+    this._cal.innerHTML = `
+      <div class="dp-header">
+        <button type="button" class="dp-nav" data-d="-1">‹</button>
+        <span class="dp-month-year">${MONTHS_CZ[this._vm]} ${this._vy}</span>
+        <button type="button" class="dp-nav" data-d="1">›</button>
+      </div>
+      <div class="dp-grid">${cells}</div>`;
+
+    this._cal.querySelectorAll('.dp-nav').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        this._vm += parseInt(btn.dataset.d);
+        if (this._vm < 0)  { this._vm = 11; this._vy--; }
+        if (this._vm > 11) { this._vm = 0;  this._vy++; }
+        this._render();
+      });
+    });
+
+    this._cal.querySelectorAll('.dp-cell:not(.dp-empty)').forEach(cell => {
+      cell.addEventListener('click', e => {
+        e.stopPropagation();
+        this.input.value = cell.dataset.date;
+        this.input.dispatchEvent(new Event('change', { bubbles: true }));
+        this.updateTrigger();
+        this._close();
+      });
+    });
+  }
+
+  _open() {
+    document.querySelectorAll('.cs-wrapper.cs-open, .dp-wrapper.dp-open').forEach(w => w.classList.remove('cs-open', 'dp-open'));
+    this._vm = null;
+    this._render();
+    this._wrap.classList.add('dp-open');
+    const rect = this._wrap.getBoundingClientRect();
+    this._cal.classList.toggle('dp-calendar-up', window.innerHeight - rect.bottom < 310 && rect.top > 310);
+  }
+
+  _close() { this._wrap.classList.remove('dp-open'); }
+  _toggle() { this._wrap.classList.contains('dp-open') ? this._close() : this._open(); }
+}
+
+// ── INIT CUSTOM COMPONENTS ────────────────────────────────────
+function initCustomComponents() {
+  document.querySelectorAll('select').forEach(el => {
+    if (el._cs || el.style.display === 'none') return;
+    new CustomSelect(el);
+  });
+  document.querySelectorAll('input[type="date"]').forEach(el => {
+    if (el._dp || el.style.display === 'none') return;
+    new CustomDatePicker(el);
+  });
+}
+
+// Close all dropdowns on outside click
+document.addEventListener('click', () => {
+  document.querySelectorAll('.cs-wrapper.cs-open, .dp-wrapper.dp-open').forEach(w => w.classList.remove('cs-open', 'dp-open'));
+});
+
+initCustomComponents();
 
 // Pridaj event listener na z-mnozstvi vo formulari
 document.getElementById('z-mnozstvi')?.addEventListener('input', updateZasobaCelkem);
