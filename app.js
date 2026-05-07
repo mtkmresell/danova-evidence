@@ -1593,22 +1593,21 @@ function _startSkladListener(skladUid) {
       if (!snap.exists()) return;
       const items = snap.data().items || [];
 
+      // Migrace: skladSyncedSaleIds nikdy nebylo inicializováno (starší verze)
+      // → smaž chybně importované příjmy a inicializuj seznam
+      if (state.nastaveni.skladSyncedSaleIds === undefined) {
+        await _fixSkladSaleInit(items);
+        // Po fixu jsou všechny paid položky v syncedSaleIds → newSales bude prázdné
+      }
+
       const synced     = [...(state.nastaveni.skladSyncedIds     || [])];
       const syncedSale = [...(state.nastaveni.skladSyncedSaleIds || [])];
 
-      // Nové nákupy (položky, které ještě nejsou v synced)
-      const newBuys = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0);
-      for (const item of newBuys) {
-        await _syncSkladBuy(item);
-        synced.push(item.id);
-      }
-
-      // Nové prodeje (paid položky, které ještě nejsou v syncedSale)
+      const newBuys  = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0);
       const newSales = items.filter(i => i.id && i.saleState === 'paid' && !syncedSale.includes(i.id));
-      for (const item of newSales) {
-        await _syncSkladSale(item);
-        syncedSale.push(item.id);
-      }
+
+      for (const item of newBuys)  { await _syncSkladBuy(item);  synced.push(item.id); }
+      for (const item of newSales) { await _syncSkladSale(item); syncedSale.push(item.id); }
 
       if (!newBuys.length && !newSales.length) return;
 
@@ -1620,11 +1619,35 @@ function _startSkladListener(skladUid) {
       state.nastaveni.skladSyncedSaleIds = syncedSale;
       _updateSkladSyncInfo();
 
-      if (newBuys.length)  showToast(`SKLAD.: ${newBuys.length} nový nákup zapsán jako výdaj`, 'success');
+      if (newBuys.length)  showToast(`SKLAD.: ${newBuys.length} nákup zapsán jako výdaj`, 'success');
       if (newSales.length) showToast(`SKLAD.: ${newSales.length} prodej zapsán jako příjem`, 'success');
     },
     err => console.error('SKLAD. listener', err)
   );
+}
+
+async function _fixSkladSaleInit(skladItems) {
+  // 1. Smaž všechny příjmy, které byly chybně naimportovány ze SKLAD.
+  const { getDocs, deleteDoc } = window._firebase;
+  const snap = await getDocs(col('transakce'));
+  const toDelete = snap.docs.filter(d => {
+    const data = d.data();
+    return data.typ === 'prijem' && (data.poznamka || '').includes('Importováno ze SKLAD.');
+  });
+  for (const d of toDelete) {
+    await deleteDoc(docRef('transakce', d.id));
+  }
+
+  // 2. Inicializuj syncedSaleIds ze všech aktuálně paid položek
+  const seenSaleIds = skladItems.filter(i => i.saleState === 'paid').map(i => i.id).filter(Boolean);
+  const { db, doc, setDoc } = window._firebase;
+  await setDoc(doc(db,'users',state.uid,'nastaveni','config'),
+    { skladSyncedSaleIds: seenSaleIds }, { merge: true });
+  state.nastaveni.skladSyncedSaleIds = seenSaleIds;
+
+  if (toDelete.length > 0) {
+    showToast(`SKLAD.: Odstraněno ${toDelete.length} chybných záznamů, sync opraven`, 'info');
+  }
 }
 
 async function _syncSkladBuy(item) {
