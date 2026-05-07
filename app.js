@@ -1878,10 +1878,14 @@ function _startSkladListener(skladUid) {
       const newBuys  = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0);
       const newSales = items.filter(i => i.id && i.saleState === 'paid' && !syncedSale.includes(i.id));
 
-      for (const item of newBuys)  { await _syncSkladBuy(item);  synced.push(item.id); }
-      for (const item of newSales) { await _syncSkladSale(item); syncedSale.push(item.id); }
+      // Group items sharing the same order into one deník entry
+      const buyGroups  = _groupSkladItems(newBuys,  i => i.orderNum  ? String(i.orderNum)  : null);
+      const saleGroups = _groupSkladItems(newSales, i => i.saleRef   ? `${i.saleRef}__${i.soldWhere||''}` : null);
 
-      if (!newBuys.length && !newSales.length) return;
+      for (const group of buyGroups)  { await _syncSkladBuyGroup(group);  group.forEach(i => synced.push(i.id)); }
+      for (const group of saleGroups) { await _syncSkladSaleGroup(group); group.forEach(i => syncedSale.push(i.id)); }
+
+      if (!buyGroups.length && !saleGroups.length) return;
 
       const { db, doc: docFn, setDoc } = window._firebase;
       await setDoc(docFn(db,'users',state.uid,'nastaveni','config'), {
@@ -1891,8 +1895,14 @@ function _startSkladListener(skladUid) {
       state.nastaveni.skladSyncedSaleIds = syncedSale;
       _updateSkladSyncInfo();
 
-      if (newBuys.length)  showToast(`SKLAD.: ${newBuys.length} nákup zapsán jako výdaj`, 'success');
-      if (newSales.length) showToast(`SKLAD.: ${newSales.length} prodej zapsán jako příjem`, 'success');
+      if (buyGroups.length) {
+        const ni = buyGroups.reduce((s,g)=>s+g.length,0);
+        showToast(`SKLAD.: ${ni} nákup${ni>1?'ů':''} → ${buyGroups.length} záznam${buyGroups.length>1?'y':'ů'} ve výdajích`, 'success');
+      }
+      if (saleGroups.length) {
+        const ni = saleGroups.reduce((s,g)=>s+g.length,0);
+        showToast(`SKLAD.: ${ni} prodej${ni>1?'ů':''} → ${saleGroups.length} záznam${saleGroups.length>1?'y':'ů'} v příjmech`, 'success');
+      }
     },
     err => console.error('SKLAD. listener', err)
   );
@@ -1937,32 +1947,57 @@ async function _fixSkladSaleInit(skladItems) {
   }
 }
 
-async function _syncSkladBuy(item) {
-  const datum  = item.buyDate || (item.dateAdded ? new Date(item.dateAdded).toISOString().slice(0,10) : todayStr());
-  const castka = Number(item.buyPrice||0) + Number(item.extraCosts||0);
-  const czk    = (item.buyCurrency || 'CZK') === 'CZK';
-  const popis  = `${item.name || 'Nákup'}${!czk ? ` (${item.buyCurrency} — přepočti ručně)` : ''}`;
+// Seskupí položky se stejným klíčem do jednoho záznamu.
+// Položky bez klíče (orderNum/saleRef prázdné) jdou každá zvlášť.
+function _groupSkladItems(items, keyFn) {
+  const map = new Map();
+  const solo = [];
+  for (const item of items) {
+    const key = keyFn(item);
+    if (key) {
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(item);
+    } else {
+      solo.push([item]);
+    }
+  }
+  return [...map.values(), ...solo];
+}
+
+async function _syncSkladBuyGroup(items) {
+  const first  = items[0];
+  const datum  = first.buyDate || (first.dateAdded ? new Date(first.dateAdded).toISOString().slice(0,10) : todayStr());
+  const castka = items.reduce((s,i) => s + Number(i.buyPrice||0) + Number(i.extraCosts||0), 0);
+  const allCzk = items.every(i => (i.buyCurrency || 'CZK') === 'CZK');
+  const popis  = items.length === 1
+    ? `${first.name || 'Nákup'}${!allCzk ? ` (${first.buyCurrency} — přepočti ručně)` : ''}`
+    : `Nákup: ${items.map(i => i.name || '?').join(' · ')}${!allCzk ? ' (různé měny — přepočti ručně)' : ''}`;
   const { addDoc } = window._firebase;
   await addDoc(col('transakce'), {
     typ: 'vydej', datum, popis,
-    doklad: item.orderNum || '', castka: Math.round(castka * 100) / 100,
+    doklad: first.orderNum || '',
+    castka: Math.round(castka * 100) / 100,
     kategorie: 'nakup_zbozi', ucet: 'bank', zdanitelny: true,
-    poznamka: `Importováno ze SKLAD. · ID: ${item.id}`,
+    poznamka: `Importováno ze SKLAD. · IDs: ${items.map(i=>i.id).join(', ')}`,
   });
 }
 
-async function _syncSkladSale(item) {
-  const datum  = item.payoutDate || item.saleDate || todayStr();
-  const castka = Number(item.sellPrice || 0);
-  const czk    = (item.sellCurrency || 'CZK') === 'CZK';
-  const kde    = item.soldWhere ? ` · ${item.soldWhere}` : '';
-  const popis  = `Prodej: ${item.name || 'položka ze SKLAD.'}${kde}${!czk ? ` (${item.sellCurrency} — přepočti ručně)` : ''}`;
+async function _syncSkladSaleGroup(items) {
+  const first  = items[0];
+  const datum  = first.payoutDate || first.saleDate || todayStr();
+  const castka = items.reduce((s,i) => s + Number(i.sellPrice||0), 0);
+  const allCzk = items.every(i => (i.sellCurrency || 'CZK') === 'CZK');
+  const kde    = first.soldWhere ? ` · ${first.soldWhere}` : '';
+  const popis  = items.length === 1
+    ? `Prodej: ${first.name || 'položka ze SKLAD.'}${kde}${!allCzk ? ` (${first.sellCurrency} — přepočti ručně)` : ''}`
+    : `Prodej: ${items.map(i => i.name || '?').join(' · ')}${kde}${!allCzk ? ' (různé měny — přepočti ručně)' : ''}`;
   const { addDoc } = window._firebase;
   await addDoc(col('transakce'), {
     typ: 'prijem', datum, popis,
-    doklad: item.saleRef || '', castka: Math.round(castka * 100) / 100,
-    kategorie: _prodejKategorie(item.soldWhere), ucet: 'bank', zdanitelny: true,
-    poznamka: `Importováno ze SKLAD. · ID: ${item.id}`,
+    doklad: first.saleRef || '',
+    castka: Math.round(castka * 100) / 100,
+    kategorie: _prodejKategorie(first.soldWhere), ucet: 'bank', zdanitelny: true,
+    poznamka: `Importováno ze SKLAD. · IDs: ${items.map(i=>i.id).join(', ')}`,
   });
 }
 
