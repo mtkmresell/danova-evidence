@@ -1324,6 +1324,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   .asset-detail { grid-template-columns: 1fr; }
   .filters-bar { flex-direction: column; align-items: stretch; }
   .filter-select, .search-input { width: 100%; }
+  .cs-wrapper.cs-fs { width: 100%; }
 }
 
 /* ── PRINT STYLES ───────────────────────────────────────── */
@@ -1333,3 +1334,220 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   .card { border: 1px solid #ccc; }
   body { background: #fff; color: #000; }
 }
+
+/* ── CUSTOM SELECT ──────────────────────────────────────── */
+.cs-wrapper {
+  position: relative;
+  display: block;
+}
+
+.cs-wrapper.cs-fc  { width: 100%; }
+.cs-wrapper.cs-fs  { flex: 0 0 auto; }
+.cs-wrapper.cs-sidebar { width: 100%; }
+
+.cs-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.cs-wrapper.cs-fc .cs-trigger {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  padding: 0.6rem 0.85rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+.cs-wrapper.cs-fc .cs-trigger:hover        { border-color: var(--text-muted); }
+.cs-wrapper.cs-fc.cs-open .cs-trigger      { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+
+.cs-wrapper.cs-fs .cs-trigger {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8rem;
+  font-family: inherit;
+}
+.cs-wrapper.cs-fs .cs-trigger:hover       { border-color: var(--text-muted); }
+.cs-wrapper.cs-fs.cs-open .cs-trigger     { border-color: var(--accent); }
+
+.cs-wrapper.cs-sidebar .cs-trigger {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  font-family: inherit;
+}
+.cs-wrapper.cs-sidebar.cs-open .cs-trigger { border-color: var(--accent); }
+
+.cs-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cs-placeholder { color: var(--text-muted); }
+
+.cs-arrow {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  transition: transform var(--transition);
+}
+.cs-wrapper.cs-open .cs-arrow { transform: rotate(180deg); }
+
+.cs-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  min-width: 160px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  z-index: 600;
+  max-height: 260px;
+  overflow-y: auto;
+  display: none;
+}
+.cs-dropdown-up { top: auto; bottom: calc(100% + 4px); }
+.cs-wrapper.cs-open .cs-dropdown { display: block; animation: csDropIn 0.12s ease; }
+
+@keyframes csDropIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.cs-option {
+  padding: 0.5rem 0.85rem;
+  font-size: 0.83rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--transition);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cs-option:hover             { background: var(--bg-hover); }
+.cs-option.cs-selected       { color: var(--accent); background: var(--accent-bg); }
+.cs-option.cs-placeholder-opt { color: var(--text-muted); }
+
+/* ── CUSTOM DATE PICKER ─────────────────────────────────── */
+.dp-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.dp-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  padding: 0.6rem 0.85rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.dp-trigger:hover                     { border-color: var(--text-muted); }
+.dp-wrapper.dp-open .dp-trigger       { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+
+.dp-icon { color: var(--text-secondary); flex-shrink: 0; }
+.dp-value { flex: 1; }
+.dp-value.dp-empty { color: var(--text-muted); }
+
+.dp-calendar {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 600;
+  padding: 0.85rem;
+  display: none;
+  min-width: 272px;
+}
+.dp-calendar-up { top: auto; bottom: calc(100% + 4px); }
+.dp-wrapper.dp-open .dp-calendar { display: block; animation: csDropIn 0.12s ease; }
+
+.dp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.dp-month-year {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.dp-nav {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+  font-family: inherit;
+  transition: all var(--transition);
+}
+.dp-nav:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--text-muted); }
+
+.dp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.dp-day-name {
+  text-align: center;
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 0.25rem 0 0.4rem;
+}
+
+.dp-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all var(--transition);
+}
+.dp-cell:not(.dp-empty):hover  { background: var(--bg-hover); color: var(--text-primary); }
+.dp-cell.dp-today              { color: var(--accent); font-weight: 600; }
+.dp-cell.dp-selected           { background: var(--accent); color: #0d1117; font-weight: 700; border-radius: var(--radius-sm); }
+.dp-cell.dp-today.dp-selected  { background: var(--accent); }
+.dp-cell.dp-empty              { cursor: default; }
