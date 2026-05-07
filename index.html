@@ -774,9 +774,15 @@
               <button class="btn btn-secondary btn-sm" onclick="disconnectSklad()">Odpojit</button>
             </div>
           </div>
-          <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--border-subtle);">
-            <button class="btn btn-danger btn-sm" onclick="smazatChybneImporty()">🗑 Smazat chybně importované příjmy ze SKLAD.</button>
-            <p style="font-size:0.72rem;color:var(--text-muted);margin-top:0.4rem;">Smaže všechny příjmy v Peněžním deníku, které byly automaticky importovány ze SKLAD.</p>
+          <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--border-subtle);display:flex;flex-direction:column;gap:0.6rem;">
+            <div>
+              <button class="btn btn-secondary btn-sm" onclick="reinicializovatSkladSync()">🔄 Reinicializovat sync</button>
+              <p style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem;">Označí všechny aktuální SKLAD. položky jako viděné. Použij pokud se importuje příliš mnoho starých položek.</p>
+            </div>
+            <div>
+              <button class="btn btn-danger btn-sm" onclick="smazatChybneImporty()">🗑 Smazat vše importované ze SKLAD.</button>
+              <p style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem;">Smaže všechny záznamy (příjmy i výdaje) importované ze SKLAD. z Peněžního deníku.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -1282,7 +1288,7 @@
 
   // Dynamically load app.js after Firebase is ready
   const script = document.createElement('script');
-  script.src = 'app.js?v=12';
+  script.src = 'app.js?v=13';
   document.body.appendChild(script);
 </script>
 
