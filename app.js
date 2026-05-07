@@ -758,6 +758,19 @@ async function loadNastaveni() {
       setVal('set-pocat-revolut',  s.pocat_revolut||'');
     }
   } catch(e) { console.error('loadNastaveni', e); }
+
+  // Restore SKLAD. sync if enabled
+  if (state.nastaveni.skladSyncEnabled && state.nastaveni.skladUid) {
+    const { skladAuth, onAuthStateChanged } = window._sklad;
+    onAuthStateChanged(skladAuth, user => {
+      if (user) {
+        _startSkladListener(state.nastaveni.skladUid);
+        _showSkladConnected();
+      } else {
+        _showSkladDisconnected();
+      }
+    });
+  }
 }
 
 async function saveNastaveni() {
@@ -1500,6 +1513,141 @@ function addDays(dateStr, days) {
 function accountIcon(ucet) {
   const icons = { hotovost:'💵 Hotovost', bank:'🏦 Banka', revolut:'💳 Revolut' };
   return `<span class="account-badge">${icons[ucet]||ucet}</span>`;
+}
+
+// ── SKLAD. SYNC ───────────────────────────────────────────────
+let _skladUnsub = null;
+
+async function connectSklad() {
+  const pwd = document.getElementById('sklad-pwd')?.value;
+  const errEl = document.getElementById('sklad-connect-err');
+  if (!pwd) { errEl.style.display='block'; errEl.textContent='Zadej heslo.'; return; }
+  errEl.style.display = 'none';
+
+  const btn = document.querySelector('#sklad-disconnected .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Připojuji…'; }
+
+  try {
+    const { skladAuth, signInWithEmailAndPassword } = window._sklad;
+    const email = window._firebase.auth.currentUser.email;
+    const cred = await signInWithEmailAndPassword(skladAuth, email, pwd);
+    const skladUid = cred.user.uid;
+
+    // Mark all currently existing SKLAD. items as already-seen (don't import retroactively)
+    const syncedIds = await _getSkladItemIds(skladUid);
+    const { db, doc, setDoc } = window._firebase;
+    await setDoc(doc(db,'users',state.uid,'nastaveni','config'),
+      { ...state.nastaveni, skladSyncEnabled: true, skladUid, skladSyncedIds: syncedIds }, { merge: true });
+    state.nastaveni.skladSyncEnabled = true;
+    state.nastaveni.skladUid = skladUid;
+    state.nastaveni.skladSyncedIds = syncedIds;
+
+    _startSkladListener(skladUid);
+    _showSkladConnected();
+    showToast('SKLAD. propojeno', 'success');
+  } catch(e) {
+    errEl.style.display = 'block';
+    errEl.textContent = e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential'
+      ? 'Špatné heslo.' : `Chyba: ${e.message}`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔗 Propojit se SKLAD.'; }
+  }
+}
+window.connectSklad = connectSklad;
+
+async function _getSkladItemIds(skladUid) {
+  const { skladDb, doc, getDoc } = { ...window._sklad, getDoc: window._firebase.getDoc };
+  const { doc: docFn } = window._sklad;
+  try {
+    const snap = await window._firebase.getDoc(
+      window._sklad.doc(window._sklad.skladDb, 'users', skladUid, 'sklad', 'data')
+    );
+    if (!snap.exists()) return [];
+    return (snap.data().items || []).map(i => i.id).filter(Boolean);
+  } catch { return []; }
+}
+
+async function disconnectSklad() {
+  if (!confirm('Odpojit SKLAD.? Automatická synchronizace se zastaví.')) return;
+  if (_skladUnsub) { _skladUnsub(); _skladUnsub = null; }
+  const { skladAuth } = window._sklad;
+  await skladAuth.signOut().catch(() => {});
+  const { db, doc, setDoc } = window._firebase;
+  await setDoc(doc(db,'users',state.uid,'nastaveni','config'),
+    { ...state.nastaveni, skladSyncEnabled: false, skladUid: null, skladSyncedIds: [] }, { merge: true });
+  state.nastaveni.skladSyncEnabled = false;
+  _showSkladDisconnected();
+  showToast('SKLAD. odpojeno', 'info');
+}
+window.disconnectSklad = disconnectSklad;
+
+function _startSkladListener(skladUid) {
+  if (_skladUnsub) { _skladUnsub(); _skladUnsub = null; }
+  const { skladDb, onSnapshot, doc } = window._sklad;
+  _skladUnsub = onSnapshot(
+    doc(skladDb, 'users', skladUid, 'sklad', 'data'),
+    async snap => {
+      if (!snap.exists()) return;
+      const items = snap.data().items || [];
+      const synced = [...(state.nastaveni.skladSyncedIds || [])];
+      const newItems = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0);
+      if (!newItems.length) return;
+
+      for (const item of newItems) {
+        await _syncSkladItem(item);
+        synced.push(item.id);
+      }
+
+      const { db, doc: docFn, setDoc } = window._firebase;
+      await setDoc(docFn(db,'users',state.uid,'nastaveni','config'),
+        { ...state.nastaveni, skladSyncedIds: synced }, { merge: true });
+      state.nastaveni.skladSyncedIds = synced;
+      _updateSkladSyncInfo(newItems.length);
+      showToast(`SKLAD.: ${newItems.length} nový${newItems.length>1?'ch':''} nákup${newItems.length>1?'ů':''} zapsán`, 'success');
+    },
+    err => console.error('SKLAD. listener', err)
+  );
+}
+
+async function _syncSkladItem(item) {
+  const datum = item.buyDate || (item.dateAdded ? new Date(item.dateAdded).toISOString().slice(0,10) : todayStr());
+  const castka = Number(item.buyPrice||0) + Number(item.extraCosts||0);
+  const menaCzk = (item.buyCurrency || 'CZK') === 'CZK';
+  const popis = `${item.name || 'Nákup ze SKLAD.'}${!menaCzk ? ` (${item.buyCurrency} — přepočti ručně)` : ''}`;
+
+  const { addDoc } = window._firebase;
+  await addDoc(col('transakce'), {
+    typ:        'vydej',
+    datum,
+    popis,
+    doklad:     item.orderNum || '',
+    castka:     Math.round(castka * 100) / 100,
+    kategorie:  'nakup_zbozi',
+    ucet:       'bank',
+    zdanitelny: true,
+    poznamka:   `Importováno ze SKLAD. · ID: ${item.id}`,
+  });
+}
+
+function _showSkladConnected() {
+  document.getElementById('sklad-disconnected').style.display = 'none';
+  document.getElementById('sklad-connected').style.display = 'block';
+  document.getElementById('sklad-sync-badge').style.display = 'inline-flex';
+  _updateSkladSyncInfo(0);
+}
+
+function _showSkladDisconnected() {
+  document.getElementById('sklad-disconnected').style.display = 'block';
+  document.getElementById('sklad-connected').style.display = 'none';
+  document.getElementById('sklad-sync-badge').style.display = 'none';
+  document.getElementById('sklad-pwd').value = '';
+}
+
+function _updateSkladSyncInfo(newCount) {
+  const el = document.getElementById('sklad-sync-info');
+  if (!el) return;
+  const total = (state.nastaveni.skladSyncedIds || []).length;
+  el.textContent = `Sledováno ${total} položek` + (newCount > 0 ? ` · právě synced ${newCount}` : '');
 }
 
 // ── CUSTOM SELECT ─────────────────────────────────────────────
