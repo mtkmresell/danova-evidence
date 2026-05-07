@@ -680,6 +680,45 @@
         </div>
       </div>
 
+      <!-- Správa kategorií -->
+      <div class="card" id="kategorie-card">
+        <div class="card-header">
+          <span class="card-title">🏷 Vlastní kategorie</span>
+        </div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:1.25rem;">
+          <p style="font-size:0.82rem;">Přidej vlastní kategorie, které ti chybí v seznamu. Zobrazují se vedle výchozích kategorií.</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;">
+
+            <!-- Příjmy -->
+            <div>
+              <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--success);margin-bottom:0.6rem;">💰 Příjmy</div>
+              <div id="kat-prijmy-list" style="display:flex;flex-direction:column;gap:0.4rem;margin-bottom:0.75rem;"></div>
+              <div style="display:flex;gap:0.5rem;">
+                <input type="text" class="form-control" id="kat-prijmy-new" placeholder="Název kategorie..." style="flex:1;font-size:0.82rem;" />
+                <button class="btn btn-primary btn-sm" onclick="addKategorie('prijem')">+</button>
+              </div>
+              <label style="display:flex;align-items:center;gap:0.4rem;margin-top:0.4rem;font-size:0.78rem;cursor:pointer;">
+                <input type="checkbox" id="kat-prijmy-zdanitelny" checked style="accent-color:var(--accent);" /> Zdanitelný příjem
+              </label>
+            </div>
+
+            <!-- Výdaje -->
+            <div>
+              <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--danger);margin-bottom:0.6rem;">💸 Výdaje</div>
+              <div id="kat-vydaje-list" style="display:flex;flex-direction:column;gap:0.4rem;margin-bottom:0.75rem;"></div>
+              <div style="display:flex;gap:0.5rem;">
+                <input type="text" class="form-control" id="kat-vydaje-new" placeholder="Název kategorie..." style="flex:1;font-size:0.82rem;" />
+                <button class="btn btn-primary btn-sm" onclick="addKategorie('vydej')">+</button>
+              </div>
+              <label style="display:flex;align-items:center;gap:0.4rem;margin-top:0.4rem;font-size:0.78rem;cursor:pointer;">
+                <input type="checkbox" id="kat-vydaje-zdanitelny" checked style="accent-color:var(--accent);" /> Daňově uznatelný výdaj
+              </label>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
       <!-- Správa účtů -->
       <div class="card" id="ucty-card">
         <div class="card-header">
@@ -795,7 +834,7 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label">Odkaz na doklad (OneDrive / URL)</label>
+        <label class="form-label">Odkaz pro doklad (OneDrive / URL)</label>
         <input type="url" class="form-control" id="t-doklad-url" placeholder="https://1drv.ms/..." />
       </div>
 
@@ -1243,7 +1282,7 @@
 
   // Dynamically load app.js after Firebase is ready
   const script = document.createElement('script');
-  script.src = 'app.js';
+  script.src = 'app.js?v=11';
   document.body.appendChild(script);
 </script>
 
