@@ -32,6 +32,16 @@ const VYDAJE_KATEGORIE = [
 const MESICE = ['','Leden','Únor','Březen','Duben','Květen','Červen',
                 'Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
 
+const DEFAULT_UCTY = [
+  { id: 'hotovost', icon: '💵', label: 'Hotovost' },
+  { id: 'bank',     icon: '🏦', label: 'Podnikatelský účet' },
+  { id: 'revolut',  icon: '💳', label: 'Revolut Business' },
+];
+
+function getUcty() {
+  return state.nastaveni.ucty?.length ? state.nastaveni.ucty : DEFAULT_UCTY;
+}
+
 // Odpisové sazby rovnoměrné (1.rok / další roky) a doby v letech
 const ODP_SKUPINY = {
   1: { roky: 3,  sazba1: 20,   sazba: 40 },
@@ -137,6 +147,14 @@ async function initApp(user) {
   fillExpenseCategorySelect('fp-kategorie-modal', VYDAJE_KATEGORIE);
   fillExpenseCategorySelect('fp-kategorie', VYDAJE_KATEGORIE);
 
+  // Custom category toggle
+  document.getElementById('t-kategorie').addEventListener('change', () => {
+    const isCustom = document.getElementById('t-kategorie').value === '___custom___';
+    const customGroup = document.getElementById('t-kategorie-custom-group');
+    if (customGroup) customGroup.style.display = isCustom ? '' : 'none';
+    if (isCustom) document.getElementById('t-kategorie-custom')?.focus();
+  });
+
   // Navigation
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => navigate(btn.dataset.section));
@@ -191,6 +209,10 @@ function fillCategorySelect(id, cats) {
     opt.textContent = c.zdanitelny ? c.label : `⚪ ${c.label}`;
     sel.appendChild(opt);
   });
+  const customOpt = document.createElement('option');
+  customOpt.value = '___custom___';
+  customOpt.textContent = '✏️ Vlastní...';
+  sel.appendChild(customOpt);
   if (sel._cs) sel._cs.updateLabel();
 }
 
@@ -357,15 +379,21 @@ function renderDashboard() {
   document.getElementById('dashboard-subtitle').textContent = `Přehled za rok ${rok}`;
   document.getElementById('tax-year-label').textContent = rok;
 
-  // Účty
-  ['hotovost','bank','revolut'].forEach(ucet => {
-    const bal = balanceAccount(ucet);
-    const el = document.getElementById(`balance-${ucet}`);
-    if (el) {
-      el.textContent = fmtCzk(bal);
-      el.className = 'account-balance ' + (bal >= 0 ? 'positive' : 'negative');
-    }
-  });
+  // Účty — dynamicky
+  const grid = document.getElementById('accounts-grid');
+  if (grid) {
+    grid.innerHTML = getUcty().map(u => {
+      const bal = balanceAccount(u.id);
+      const cls = bal >= 0 ? 'positive' : 'negative';
+      return `<div class="account-card">
+        <div class="account-card-top">
+          <span class="account-icon">${u.icon}</span>
+          <span class="account-label">${esc(u.label)}</span>
+        </div>
+        <div class="account-balance ${cls}">${fmtCzk(bal)}</div>
+      </div>`;
+    }).join('');
+  }
 
   // Stats
   setText('stat-prijmy', fmtCzk(prijmyZd));
@@ -426,9 +454,15 @@ function renderDenik() {
   setText('sum-prijmy-zd', fmtCzk(prijmyZd));
   setText('sum-vydaje-zd', fmtCzk(vydajeZd));
   setText('sum-zaklad', fmtCzk(prijmyZd - vydajeZd));
-  setText('sum-hotovost', fmtCzk(balanceAccount('hotovost')));
-  setText('sum-bank',     fmtCzk(balanceAccount('bank')));
-  setText('sum-revolut',  fmtCzk(balanceAccount('revolut')));
+  const sumUctyContainer = document.getElementById('sum-ucty-container');
+  if (sumUctyContainer) {
+    sumUctyContainer.innerHTML = getUcty().map(u => `
+      <div class="summary-divider"></div>
+      <div class="summary-item">
+        <span class="summary-item-label">${esc(u.label)}</span>
+        <span class="summary-item-value">${fmtCzk(balanceAccount(u.id))}</span>
+      </div>`).join('');
+  }
 
   const tbody = document.getElementById('denik-tbody');
   if (!tx.length) {
@@ -439,16 +473,19 @@ function renderDenik() {
   tbody.innerHTML = tx.map(t => {
     const katLabel = getCatLabel(t.kategorie, t.typ);
     const shortKat = katLabel.length > 28 ? katLabel.substring(0,28)+'…' : katLabel;
-    return `<tr>
+    const dokladCell = t.dokladUrl
+      ? `<a href="${esc(t.dokladUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent);">${esc(t.doklad||'—')}</a>`
+      : esc(t.doklad||'—');
+    return `<tr style="cursor:pointer;" onclick="showTransakceDetail('${t.id}')">
       <td class="td-muted" style="white-space:nowrap;">${fmtDate(t.datum)}</td>
-      <td class="td-muted">${esc(t.doklad||'—')}</td>
+      <td class="td-muted">${dokladCell}</td>
       <td>${esc(t.popis)}</td>
       <td><span title="${esc(katLabel)}" class="td-muted" style="font-size:0.78rem;">${esc(shortKat)}</span></td>
       <td>${accountIcon(t.ucet)}</td>
       <td class="td-amount-income">${t.typ==='prijem' ? fmtCzk(t.castka) : ''}</td>
       <td class="td-amount-expense">${t.typ==='vydej' ? fmtCzk(t.castka) : ''}</td>
       <td>${t.zdanitelny ? '<span class="badge badge-income">Ano</span>' : '<span class="badge badge-neutral">Ne</span>'}</td>
-      <td class="td-actions">
+      <td class="td-actions" onclick="event.stopPropagation()">
         <button class="btn btn-ghost btn-icon" onclick="editTransakce('${t.id}')" title="Upravit">✏️</button>
         <button class="btn btn-ghost btn-icon" onclick="confirmDelete('transakce','${t.id}','záznam')" title="Smazat">🗑</button>
       </td>
@@ -456,6 +493,73 @@ function renderDenik() {
   }).join('');
 }
 window.renderDenik = renderDenik;
+
+function showTransakceDetail(id) {
+  const t = state.transakce.find(x => x.id === id);
+  if (!t) return;
+  const catLabel = getCatLabel(t.kategorie, t.typ);
+  const u = getUcty().find(x => x.id === t.ucet);
+  const ucetLabel = u ? `${u.icon} ${esc(u.label)}` : esc(t.ucet || '—');
+  const dokladHtml = t.dokladUrl
+    ? `<a href="${esc(t.dokladUrl)}" target="_blank" rel="noopener" style="color:var(--accent);">${esc(t.doklad || '—')}</a>`
+    : esc(t.doklad || '—');
+  const typBadge = t.typ === 'prijem'
+    ? '<span class="badge badge-income">↑ Příjem</span>'
+    : '<span class="badge badge-expense">↓ Výdaj</span>';
+  const amountColor = t.typ === 'prijem' ? 'var(--income,var(--success))' : 'var(--expense,var(--danger))';
+
+  document.getElementById('detail-title').textContent = t.typ === 'prijem' ? '↑ Detail příjmu' : '↓ Detail výdaje';
+  document.getElementById('detail-body').innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:0.75rem;">
+      <div style="display:flex;gap:1rem;align-items:baseline;">
+        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Typ</span>
+        <span>${typBadge}</span>
+      </div>
+      <div style="display:flex;gap:1rem;align-items:baseline;">
+        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Datum</span>
+        <span>${fmtDate(t.datum)}</span>
+      </div>
+      <div style="display:flex;gap:1rem;align-items:baseline;">
+        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Doklad č.</span>
+        <span>${dokladHtml}</span>
+      </div>
+      <div style="display:flex;gap:1rem;align-items:baseline;">
+        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Popis</span>
+        <span>${esc(t.popis)}</span>
+      </div>
+      <div style="display:flex;gap:1rem;align-items:baseline;">
+        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Kategorie</span>
+        <span style="font-size:0.88rem;">${esc(catLabel)}</span>
+      </div>
+      <div style="display:flex;gap:1rem;align-items:baseline;">
+        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Účet</span>
+        <span>${ucetLabel}</span>
+      </div>
+      <div style="display:flex;gap:1rem;align-items:baseline;">
+        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Částka</span>
+        <span style="font-weight:700;font-size:1.15rem;color:${amountColor};">${fmtCzk(t.castka)}</span>
+      </div>
+      <div style="display:flex;gap:1rem;align-items:baseline;">
+        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Daňový vliv</span>
+        <span>${t.zdanitelny ? '<span class="badge badge-income">Ano</span>' : '<span class="badge badge-neutral">Ne</span>'}</span>
+      </div>
+      ${t.poznamka ? `<div style="display:flex;gap:1rem;align-items:baseline;">
+        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Poznámka</span>
+        <span style="font-size:0.88rem;color:var(--text-secondary);">${esc(t.poznamka)}</span>
+      </div>` : ''}
+    </div>`;
+
+  document.getElementById('detail-edit-btn').onclick = () => {
+    closeModal('modal-transakce-detail');
+    editTransakce(id);
+  };
+  document.getElementById('detail-delete-btn').onclick = () => {
+    closeModal('modal-transakce-detail');
+    confirmDelete('transakce', id, 'záznam');
+  };
+  openModal('modal-transakce-detail');
+}
+window.showTransakceDetail = showTransakceDetail;
 
 // ── FAKTURY VYDANÉ ────────────────────────────────────────────
 function renderFakturyVydane() {
@@ -758,6 +862,8 @@ async function loadNastaveni() {
       setVal('set-pocat-revolut',  s.pocat_revolut||'');
     }
   } catch(e) { console.error('loadNastaveni', e); }
+  fillAccountSelects();
+  renderUctyList();
 
   // Restore SKLAD. sync if enabled
   if (state.nastaveni.skladSyncEnabled && state.nastaveni.skladUid) {
@@ -787,8 +893,8 @@ async function saveNastaveni() {
     pocat_revolut: Number(getVal('set-pocat-revolut')||0),
   };
   try {
-    await setDoc(doc(db,'users',state.uid,'nastaveni','config'), data);
-    state.nastaveni = data;
+    await setDoc(doc(db,'users',state.uid,'nastaveni','config'), data, { merge: true });
+    Object.assign(state.nastaveni, data);
     refreshAll();
     showToast('Nastavení uloženo', 'success');
   } catch(e) {
@@ -805,8 +911,10 @@ function setTransakceTyp(typ) {
   document.getElementById('t-typ').value = typ;
   document.getElementById('toggle-prijem').className = 'type-toggle-btn ' + (typ==='prijem' ? 'active-income' : '');
   document.getElementById('toggle-vydej').className  = 'type-toggle-btn ' + (typ==='vydej'  ? 'active-expense' : '');
-  // Update category options
+  // Update category options and hide custom input
   fillCategorySelect('t-kategorie', typ==='prijem' ? PRIJMY_KATEGORIE : VYDAJE_KATEGORIE);
+  const customGroup = document.getElementById('t-kategorie-custom-group');
+  if (customGroup) customGroup.style.display = 'none';
 }
 window.setTransakceTyp = setTransakceTyp;
 
@@ -851,11 +959,14 @@ document.addEventListener('click', e => {
 });
 
 function clearTransakceForm() {
-  ['t-doklad','t-popis','t-castka','t-poznamka'].forEach(id => setVal(id,''));
-  setVal('t-ucet','hotovost');
+  ['t-doklad','t-doklad-url','t-popis','t-castka','t-poznamka','t-kategorie-custom'].forEach(id => setVal(id,''));
+  const firstUcet = getUcty()[0]?.id || 'hotovost';
+  setVal('t-ucet', firstUcet);
   setVal('t-datum', todayStr());
   document.getElementById('t-id').value = '';
   document.getElementById('t-zdanitelny').checked = true;
+  const customGroup = document.getElementById('t-kategorie-custom-group');
+  if (customGroup) customGroup.style.display = 'none';
   setTransakceTyp('prijem');
 }
 
@@ -869,8 +980,19 @@ function editTransakce(id) {
   fillCategorySelect('t-kategorie', t.typ==='prijem' ? PRIJMY_KATEGORIE : VYDAJE_KATEGORIE);
   setVal('t-datum',     t.datum);
   setVal('t-doklad',    t.doklad||'');
+  setVal('t-doklad-url', t.dokladUrl||'');
   setVal('t-popis',     t.popis);
-  setVal('t-kategorie', t.kategorie);
+  // Handle custom category (value not in known list)
+  const knownIds = [...PRIJMY_KATEGORIE, ...VYDAJE_KATEGORIE].map(c => c.id);
+  if (t.kategorie && !knownIds.includes(t.kategorie)) {
+    setVal('t-kategorie', '___custom___');
+    const catInput = document.getElementById('t-kategorie-custom');
+    if (catInput) catInput.value = t.kategorie;
+    const customGroup = document.getElementById('t-kategorie-custom-group');
+    if (customGroup) customGroup.style.display = '';
+  } else {
+    setVal('t-kategorie', t.kategorie);
+  }
   setVal('t-ucet',      t.ucet);
   setVal('t-castka',    t.castka);
   setVal('t-poznamka',  t.poznamka||'');
@@ -884,17 +1006,25 @@ async function saveTransakce() {
   const datum   = getVal('t-datum');
   const popis   = getVal('t-popis').trim();
   const castka  = parseFloat(getVal('t-castka'));
-  const kategorie = getVal('t-kategorie');
+  let   kategorie = getVal('t-kategorie');
   const ucet    = getVal('t-ucet');
+
+  // Resolve custom category
+  if (kategorie === '___custom___') {
+    kategorie = (document.getElementById('t-kategorie-custom')?.value || '').trim();
+    if (!kategorie) { showToast('Vyplň název vlastní kategorie', 'error'); return; }
+  }
 
   if (!datum || !popis || isNaN(castka) || castka <= 0 || !kategorie) {
     showToast('Vyplň všechna povinná pole', 'error'); return;
   }
 
   const zdanitelny = document.getElementById('t-zdanitelny').checked;
+  const dokladUrl = (getVal('t-doklad-url') || '').trim();
   const data = {
     typ, datum, popis,
     doklad:    getVal('t-doklad'),
+    dokladUrl: dokladUrl || null,
     castka,
     kategorie,
     ucet,
@@ -1511,8 +1641,78 @@ function addDays(dateStr, days) {
 }
 
 function accountIcon(ucet) {
-  const icons = { hotovost:'💵 Hotovost', bank:'🏦 Banka', revolut:'💳 Revolut' };
-  return `<span class="account-badge">${icons[ucet]||ucet}</span>`;
+  const u = getUcty().find(x => x.id === ucet);
+  const label = u ? `${u.icon} ${u.label}` : (ucet || '—');
+  return `<span class="account-badge">${label}</span>`;
+}
+
+function fillAccountSelects() {
+  const ucty = getUcty();
+  const tUcet = document.getElementById('t-ucet');
+  if (tUcet) {
+    const cur = tUcet.value;
+    tUcet.innerHTML = ucty.map(u => `<option value="${u.id}">${u.icon} ${u.label}</option>`).join('');
+    if (cur && ucty.find(u => u.id === cur)) tUcet.value = cur;
+    if (tUcet._cs) tUcet._cs.updateLabel();
+  }
+  const denikUcet = document.getElementById('denik-ucet');
+  if (denikUcet) {
+    const cur = denikUcet.value;
+    denikUcet.innerHTML = '<option value="">Účet: vše</option>' +
+      ucty.map(u => `<option value="${u.id}">${u.icon} ${u.label}</option>`).join('');
+    if (cur) denikUcet.value = cur;
+    if (denikUcet._cs) denikUcet._cs.updateLabel();
+  }
+}
+
+function renderUctyList() {
+  const list = document.getElementById('ucty-list');
+  if (!list) return;
+  const ucty = getUcty();
+  const isDefault = !state.nastaveni.ucty?.length;
+  list.innerHTML = ucty.map((u, i) => `
+    <div style="display:flex;align-items:center;gap:0.75rem;padding:0.6rem 0.75rem;background:var(--bg-tertiary);border-radius:var(--radius);border:1px solid var(--border-subtle);">
+      <span style="font-size:1.25rem;line-height:1;">${u.icon}</span>
+      <span style="flex:1;font-size:0.9rem;">${esc(u.label)}</span>
+      ${!isDefault ? `<button class="btn btn-ghost btn-icon btn-sm" onclick="deleteUcet(${i})" title="Smazat účet" style="color:var(--danger);">🗑</button>` : ''}
+    </div>`).join('');
+  if (isDefault) {
+    list.insertAdjacentHTML('afterbegin', `<p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.5rem;">Výchozí účty. Přidej vlastní, nebo je ponech.</p>`);
+  }
+}
+
+async function addUcet() {
+  const icon  = (document.getElementById('ucet-new-icon')?.value.trim()) || '💳';
+  const label = (document.getElementById('ucet-new-label')?.value.trim()) || '';
+  if (!label) { showToast('Zadej název účtu', 'error'); return; }
+  const id = 'ucet_' + Date.now();
+  const ucty = [...getUcty(), { id, icon, label }];
+  await _saveUcty(ucty);
+  if (document.getElementById('ucet-new-icon')) document.getElementById('ucet-new-icon').value = '';
+  if (document.getElementById('ucet-new-label')) document.getElementById('ucet-new-label').value = '';
+}
+window.addUcet = addUcet;
+
+async function deleteUcet(index) {
+  const ucty = [...getUcty()];
+  ucty.splice(index, 1);
+  await _saveUcty(ucty);
+}
+window.deleteUcet = deleteUcet;
+
+async function _saveUcty(ucty) {
+  const { db, doc, setDoc } = window._firebase;
+  try {
+    await setDoc(doc(db,'users',state.uid,'nastaveni','config'), { ucty }, { merge: true });
+    state.nastaveni.ucty = ucty;
+    renderUctyList();
+    fillAccountSelects();
+    renderDashboard();
+    renderDenik();
+    showToast('Účty uloženy', 'success');
+  } catch(e) {
+    showToast('Chyba: ' + e.message, 'error');
+  }
 }
 
 // ── SKLAD. SYNC ───────────────────────────────────────────────
