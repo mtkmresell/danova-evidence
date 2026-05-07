@@ -203,7 +203,11 @@ function fillCategorySelect(id, cats) {
   const sel = document.getElementById(id);
   if (!sel) return;
   sel.innerHTML = '';
-  cats.forEach(c => {
+  const isPrijem = cats === PRIJMY_KATEGORIE;
+  const customCats = isPrijem
+    ? (state.nastaveni.custom_prijmy || [])
+    : (state.nastaveni.custom_vydaje || []);
+  [...cats, ...customCats].forEach(c => {
     const opt = document.createElement('option');
     opt.value = c.id;
     opt.textContent = c.zdanitelny ? c.label : `⚪ ${c.label}`;
@@ -358,7 +362,12 @@ function isOverdue(splatnost) {
 
 function getCatLabel(id, typ) {
   const arr = typ === 'prijem' ? PRIJMY_KATEGORIE : VYDAJE_KATEGORIE;
-  return arr.find(c => c.id === id)?.label || id;
+  const found = arr.find(c => c.id === id);
+  if (found) return found.label;
+  const customArr = typ === 'prijem'
+    ? (state.nastaveni.custom_prijmy || [])
+    : (state.nastaveni.custom_vydaje || []);
+  return customArr.find(c => c.id === id)?.label || id;
 }
 
 function isZdanitelny(katId, typ) {
@@ -864,6 +873,8 @@ async function loadNastaveni() {
   } catch(e) { console.error('loadNastaveni', e); }
   fillAccountSelects();
   renderUctyList();
+  renderKategorieList('prijem');
+  renderKategorieList('vydej');
 
   // Restore SKLAD. sync if enabled
   if (state.nastaveni.skladSyncEnabled && state.nastaveni.skladUid) {
@@ -983,7 +994,11 @@ function editTransakce(id) {
   setVal('t-doklad-url', t.dokladUrl||'');
   setVal('t-popis',     t.popis);
   // Handle custom category (value not in known list)
-  const knownIds = [...PRIJMY_KATEGORIE, ...VYDAJE_KATEGORIE].map(c => c.id);
+  const knownIds = [
+    ...PRIJMY_KATEGORIE, ...VYDAJE_KATEGORIE,
+    ...(state.nastaveni.custom_prijmy || []),
+    ...(state.nastaveni.custom_vydaje || []),
+  ].map(c => c.id);
   if (t.kategorie && !knownIds.includes(t.kategorie)) {
     setVal('t-kategorie', '___custom___');
     const catInput = document.getElementById('t-kategorie-custom');
@@ -1710,6 +1725,63 @@ async function _saveUcty(ucty) {
     renderDashboard();
     renderDenik();
     showToast('Účty uloženy', 'success');
+  } catch(e) {
+    showToast('Chyba: ' + e.message, 'error');
+  }
+}
+
+// ── SPRÁVA KATEGORIÍ ──────────────────────────────────────────
+function renderKategorieList(typ) {
+  const listId = typ === 'prijem' ? 'kat-prijmy-list' : 'kat-vydaje-list';
+  const list = document.getElementById(listId);
+  if (!list) return;
+  const key = typ === 'prijem' ? 'custom_prijmy' : 'custom_vydaje';
+  const cats = state.nastaveni[key] || [];
+  if (!cats.length) {
+    list.innerHTML = `<p style="font-size:0.78rem;color:var(--text-muted);">Zatím žádné vlastní kategorie.</p>`;
+    return;
+  }
+  list.innerHTML = cats.map((c, i) => `
+    <div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.6rem;background:var(--bg-tertiary);border-radius:var(--radius);border:1px solid var(--border-subtle);">
+      <span style="flex:1;font-size:0.82rem;">${esc(c.label)}</span>
+      <span style="font-size:0.7rem;color:var(--text-muted);">${c.zdanitelny ? 'zdanit.' : 'nezdanit.'}</span>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="deleteKategorie('${typ}',${i})" style="color:var(--danger);">🗑</button>
+    </div>`).join('');
+}
+
+async function addKategorie(typ) {
+  const inputId = typ === 'prijem' ? 'kat-prijmy-new' : 'kat-vydaje-new';
+  const checkId = typ === 'prijem' ? 'kat-prijmy-zdanitelny' : 'kat-vydaje-zdanitelny';
+  const label = (document.getElementById(inputId)?.value || '').trim();
+  if (!label) { showToast('Zadej název kategorie', 'error'); return; }
+  const zdanitelny = document.getElementById(checkId)?.checked ?? true;
+  const id = (typ === 'prijem' ? 'cust_p_' : 'cust_v_') + Date.now();
+  const key = typ === 'prijem' ? 'custom_prijmy' : 'custom_vydaje';
+  const cats = [...(state.nastaveni[key] || []), { id, label, zdanitelny }];
+  await _saveKategorie(typ, cats);
+  if (document.getElementById(inputId)) document.getElementById(inputId).value = '';
+}
+window.addKategorie = addKategorie;
+
+async function deleteKategorie(typ, index) {
+  const key = typ === 'prijem' ? 'custom_prijmy' : 'custom_vydaje';
+  const cats = [...(state.nastaveni[key] || [])];
+  cats.splice(index, 1);
+  await _saveKategorie(typ, cats);
+}
+window.deleteKategorie = deleteKategorie;
+
+async function _saveKategorie(typ, cats) {
+  const key = typ === 'prijem' ? 'custom_prijmy' : 'custom_vydaje';
+  const { db, doc, setDoc } = window._firebase;
+  try {
+    await setDoc(doc(db,'users',state.uid,'nastaveni','config'), { [key]: cats }, { merge: true });
+    state.nastaveni[key] = cats;
+    renderKategorieList(typ);
+    // Refresh category dropdown if modal is open
+    const curTyp = document.getElementById('t-typ')?.value;
+    if (curTyp) fillCategorySelect('t-kategorie', curTyp === 'prijem' ? PRIJMY_KATEGORIE : VYDAJE_KATEGORIE);
+    showToast('Kategorie uloženy', 'success');
   } catch(e) {
     showToast('Chyba: ' + e.message, 'error');
   }
