@@ -1533,14 +1533,14 @@ async function connectSklad() {
     const cred = await signInWithEmailAndPassword(skladAuth, email, pwd);
     const skladUid = cred.user.uid;
 
-    // Mark all currently existing SKLAD. items as already-seen (don't import retroactively)
-    const syncedIds = await _getSkladItemIds(skladUid);
+    // Mark all currently existing items as already-seen (don't import retroactively)
+    const { syncedIds, syncedSaleIds } = await _getSkladSeenIds(skladUid);
     const { db, doc, setDoc } = window._firebase;
-    await setDoc(doc(db,'users',state.uid,'nastaveni','config'),
-      { ...state.nastaveni, skladSyncEnabled: true, skladUid, skladSyncedIds: syncedIds }, { merge: true });
-    state.nastaveni.skladSyncEnabled = true;
-    state.nastaveni.skladUid = skladUid;
-    state.nastaveni.skladSyncedIds = syncedIds;
+    await setDoc(doc(db,'users',state.uid,'nastaveni','config'), {
+      ...state.nastaveni, skladSyncEnabled: true, skladUid,
+      skladSyncedIds: syncedIds, skladSyncedSaleIds: syncedSaleIds,
+    }, { merge: true });
+    Object.assign(state.nastaveni, { skladSyncEnabled: true, skladUid, skladSyncedIds: syncedIds, skladSyncedSaleIds: syncedSaleIds });
 
     _startSkladListener(skladUid);
     _showSkladConnected();
@@ -1555,26 +1555,29 @@ async function connectSklad() {
 }
 window.connectSklad = connectSklad;
 
-async function _getSkladItemIds(skladUid) {
-  const { skladDb, doc, getDoc } = { ...window._sklad, getDoc: window._firebase.getDoc };
-  const { doc: docFn } = window._sklad;
+async function _getSkladSeenIds(skladUid) {
   try {
     const snap = await window._firebase.getDoc(
       window._sklad.doc(window._sklad.skladDb, 'users', skladUid, 'sklad', 'data')
     );
-    if (!snap.exists()) return [];
-    return (snap.data().items || []).map(i => i.id).filter(Boolean);
-  } catch { return []; }
+    if (!snap.exists()) return { syncedIds: [], syncedSaleIds: [] };
+    const items = snap.data().items || [];
+    return {
+      syncedIds:     items.map(i => i.id).filter(Boolean),
+      syncedSaleIds: items.filter(i => i.saleState === 'paid').map(i => i.id).filter(Boolean),
+    };
+  } catch { return { syncedIds: [], syncedSaleIds: [] }; }
 }
 
 async function disconnectSklad() {
   if (!confirm('Odpojit SKLAD.? Automatická synchronizace se zastaví.')) return;
   if (_skladUnsub) { _skladUnsub(); _skladUnsub = null; }
-  const { skladAuth } = window._sklad;
-  await skladAuth.signOut().catch(() => {});
+  await window._sklad.skladAuth.signOut().catch(() => {});
   const { db, doc, setDoc } = window._firebase;
-  await setDoc(doc(db,'users',state.uid,'nastaveni','config'),
-    { ...state.nastaveni, skladSyncEnabled: false, skladUid: null, skladSyncedIds: [] }, { merge: true });
+  await setDoc(doc(db,'users',state.uid,'nastaveni','config'), {
+    ...state.nastaveni, skladSyncEnabled: false, skladUid: null,
+    skladSyncedIds: [], skladSyncedSaleIds: [],
+  }, { merge: true });
   state.nastaveni.skladSyncEnabled = false;
   _showSkladDisconnected();
   showToast('SKLAD. odpojeno', 'info');
@@ -1589,51 +1592,82 @@ function _startSkladListener(skladUid) {
     async snap => {
       if (!snap.exists()) return;
       const items = snap.data().items || [];
-      const synced = [...(state.nastaveni.skladSyncedIds || [])];
-      const newItems = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0);
-      if (!newItems.length) return;
 
-      for (const item of newItems) {
-        await _syncSkladItem(item);
+      const synced     = [...(state.nastaveni.skladSyncedIds     || [])];
+      const syncedSale = [...(state.nastaveni.skladSyncedSaleIds || [])];
+
+      // Nové nákupy (položky, které ještě nejsou v synced)
+      const newBuys = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0);
+      for (const item of newBuys) {
+        await _syncSkladBuy(item);
         synced.push(item.id);
       }
 
+      // Nové prodeje (paid položky, které ještě nejsou v syncedSale)
+      const newSales = items.filter(i => i.id && i.saleState === 'paid' && !syncedSale.includes(i.id) && Number(i.sellPrice) > 0);
+      for (const item of newSales) {
+        await _syncSkladSale(item);
+        syncedSale.push(item.id);
+      }
+
+      if (!newBuys.length && !newSales.length) return;
+
       const { db, doc: docFn, setDoc } = window._firebase;
-      await setDoc(docFn(db,'users',state.uid,'nastaveni','config'),
-        { ...state.nastaveni, skladSyncedIds: synced }, { merge: true });
-      state.nastaveni.skladSyncedIds = synced;
-      _updateSkladSyncInfo(newItems.length);
-      showToast(`SKLAD.: ${newItems.length} nový${newItems.length>1?'ch':''} nákup${newItems.length>1?'ů':''} zapsán`, 'success');
+      await setDoc(docFn(db,'users',state.uid,'nastaveni','config'), {
+        ...state.nastaveni, skladSyncedIds: synced, skladSyncedSaleIds: syncedSale,
+      }, { merge: true });
+      state.nastaveni.skladSyncedIds     = synced;
+      state.nastaveni.skladSyncedSaleIds = syncedSale;
+      _updateSkladSyncInfo();
+
+      if (newBuys.length)  showToast(`SKLAD.: ${newBuys.length} nový nákup zapsán jako výdaj`, 'success');
+      if (newSales.length) showToast(`SKLAD.: ${newSales.length} prodej zapsán jako příjem`, 'success');
     },
     err => console.error('SKLAD. listener', err)
   );
 }
 
-async function _syncSkladItem(item) {
-  const datum = item.buyDate || (item.dateAdded ? new Date(item.dateAdded).toISOString().slice(0,10) : todayStr());
+async function _syncSkladBuy(item) {
+  const datum  = item.buyDate || (item.dateAdded ? new Date(item.dateAdded).toISOString().slice(0,10) : todayStr());
   const castka = Number(item.buyPrice||0) + Number(item.extraCosts||0);
-  const menaCzk = (item.buyCurrency || 'CZK') === 'CZK';
-  const popis = `${item.name || 'Nákup ze SKLAD.'}${!menaCzk ? ` (${item.buyCurrency} — přepočti ručně)` : ''}`;
-
+  const czk    = (item.buyCurrency || 'CZK') === 'CZK';
+  const popis  = `${item.name || 'Nákup'}${!czk ? ` (${item.buyCurrency} — přepočti ručně)` : ''}`;
   const { addDoc } = window._firebase;
   await addDoc(col('transakce'), {
-    typ:        'vydej',
-    datum,
-    popis,
-    doklad:     item.orderNum || '',
-    castka:     Math.round(castka * 100) / 100,
-    kategorie:  'nakup_zbozi',
-    ucet:       'bank',
-    zdanitelny: true,
-    poznamka:   `Importováno ze SKLAD. · ID: ${item.id}`,
+    typ: 'vydej', datum, popis,
+    doklad: item.orderNum || '', castka: Math.round(castka * 100) / 100,
+    kategorie: 'nakup_zbozi', ucet: 'bank', zdanitelny: true,
+    poznamka: `Importováno ze SKLAD. · ID: ${item.id}`,
   });
+}
+
+async function _syncSkladSale(item) {
+  const datum  = item.payoutDate || item.saleDate || todayStr();
+  const castka = Number(item.sellPrice || 0);
+  const czk    = (item.sellCurrency || 'CZK') === 'CZK';
+  const kde    = item.soldWhere ? ` · ${item.soldWhere}` : '';
+  const popis  = `Prodej: ${item.name || 'položka ze SKLAD.'}${kde}${!czk ? ` (${item.sellCurrency} — přepočti ručně)` : ''}`;
+  const { addDoc } = window._firebase;
+  await addDoc(col('transakce'), {
+    typ: 'prijem', datum, popis,
+    doklad: item.saleRef || '', castka: Math.round(castka * 100) / 100,
+    kategorie: _prodejKategorie(item.soldWhere), ucet: 'bank', zdanitelny: true,
+    poznamka: `Importováno ze SKLAD. · ID: ${item.id}`,
+  });
+}
+
+function _prodejKategorie(soldWhere) {
+  const w = (soldWhere || '').toLowerCase();
+  if (/stockx|klekt|hypeboost|alias|kick/.test(w)) return 'prodej_platforma';
+  if (/thebeast|pikastore|released|komis/.test(w))  return 'prodej_komis';
+  return 'prodej_local';
 }
 
 function _showSkladConnected() {
   document.getElementById('sklad-disconnected').style.display = 'none';
   document.getElementById('sklad-connected').style.display = 'block';
   document.getElementById('sklad-sync-badge').style.display = 'inline-flex';
-  _updateSkladSyncInfo(0);
+  _updateSkladSyncInfo();
 }
 
 function _showSkladDisconnected() {
@@ -1643,11 +1677,12 @@ function _showSkladDisconnected() {
   document.getElementById('sklad-pwd').value = '';
 }
 
-function _updateSkladSyncInfo(newCount) {
+function _updateSkladSyncInfo() {
   const el = document.getElementById('sklad-sync-info');
   if (!el) return;
-  const total = (state.nastaveni.skladSyncedIds || []).length;
-  el.textContent = `Sledováno ${total} položek` + (newCount > 0 ? ` · právě synced ${newCount}` : '');
+  const nakupy  = (state.nastaveni.skladSyncedIds     || []).length;
+  const prodeje = (state.nastaveni.skladSyncedSaleIds || []).length;
+  el.textContent = `Sleduje ${nakupy} nákupů · ${prodeje} prodejů`;
 }
 
 // ── CUSTOM SELECT ─────────────────────────────────────────────
