@@ -1626,6 +1626,21 @@ function _startSkladListener(skladUid) {
   );
 }
 
+async function smazatChybneImporty() {
+  if (!confirm('Smazat všechny příjmy importované ze SKLAD.? Tuto akci nelze vrátit.')) return;
+  const { getDocs, deleteDoc } = window._firebase;
+  const snap = await getDocs(col('transakce'));
+  const toDelete = snap.docs.filter(d => {
+    const data = d.data();
+    return data.typ === 'prijem' && (data.poznamka || '').includes('Importováno ze SKLAD.');
+  });
+  for (const d of toDelete) {
+    await deleteDoc(docRef('transakce', d.id));
+  }
+  showToast(toDelete.length > 0 ? `Smazáno ${toDelete.length} chybných záznamů` : 'Žádné SKLAD. příjmy nenalezeny', 'success');
+}
+window.smazatChybneImporty = smazatChybneImporty;
+
 async function _fixSkladSaleInit(skladItems) {
   // 1. Smaž všechny příjmy, které byly chybně naimportovány ze SKLAD.
   const { getDocs, deleteDoc } = window._firebase;
