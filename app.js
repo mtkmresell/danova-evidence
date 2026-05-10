@@ -552,6 +552,14 @@ function showTransakceDetail(id) {
         <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Daňový vliv</span>
         <span>${t.zdanitelny ? '<span class="badge badge-income">Ano</span>' : '<span class="badge badge-neutral">Ne</span>'}</span>
       </div>
+      ${t.kurzCnb ? `<div style="display:flex;gap:1rem;align-items:baseline;">
+        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Původní částka</span>
+        <span style="font-weight:600;">${t.castkaCizi} ${t.menaCizi}</span>
+      </div>
+      <div style="display:flex;gap:1rem;align-items:baseline;">
+        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Kurz ČNB</span>
+        <span>1 ${t.menaCizi} = <strong>${t.kurzCnb} CZK</strong>${t.kurzDatum ? ` <span style="font-size:0.82rem;color:var(--text-muted);">(ke dni ${fmtDate(t.kurzDatum)})</span>` : ''}</span>
+      </div>` : ''}
       ${t.poznamka ? `<div style="display:flex;gap:1rem;align-items:baseline;">
         <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Poznámka</span>
         <span style="font-size:0.88rem;color:var(--text-secondary);">${esc(t.poznamka)}</span>
@@ -1973,6 +1981,32 @@ async function _fixSkladSaleInit(skladItems) {
 
 // Seskupí položky se stejným klíčem do jednoho záznamu.
 // Položky bez klíče (orderNum/saleRef prázdné) jdou každá zvlášť.
+// Načte kurz z ČNB pro dané datum a měnu. Zkouší až 5 předchozích dnů (víkendy/svátky).
+// Vrací { rate, source } kde rate = CZK za 1 jednotku měny, source = skutečné datum kurzu.
+async function fetchCnbRate(dateStr, currency) {
+  let d = new Date(dateStr + 'T12:00:00Z');
+  for (let i = 0; i < 5; i++) {
+    const iso   = d.toISOString().slice(0, 10);
+    const parts = iso.split('-');
+    const cnbDate = `${parts[2]}.${parts[1]}.${parts[0]}`;
+    try {
+      const resp = await fetch(`https://www.cnb.cz/cs/financni_trhy/devizovy_trh/kurzy_devizoveho_trhu/kurzy_devizoveho_trhu/denni_kurz.txt?date=${cnbDate}`);
+      if (!resp.ok) { d.setUTCDate(d.getUTCDate() - 1); continue; }
+      const text = await resp.text();
+      for (const line of text.split('\n')) {
+        const cols = line.split('|');
+        if (cols.length >= 5 && cols[3].trim().toUpperCase() === currency.toUpperCase()) {
+          const amount = Number(cols[2]);
+          const rate   = Number(cols[4].replace(',', '.'));
+          if (amount && rate) return { rate: rate / amount, source: iso };
+        }
+      }
+    } catch (_) {}
+    d.setUTCDate(d.getUTCDate() - 1);
+  }
+  return null;
+}
+
 function _groupSkladItems(items, keyFn) {
   const map = new Map();
   const solo = [];
@@ -1989,44 +2023,103 @@ function _groupSkladItems(items, keyFn) {
 }
 
 async function _syncSkladBuyGroup(items) {
-  const first   = items[0];
-  const datum   = first.buyDate || (first.dateAdded ? new Date(first.dateAdded).toISOString().slice(0,10) : todayStr());
-  const allCzk  = items.every(i => (i.buyCurrency || 'CZK') === 'CZK');
+  const first = items[0];
+  const datum = first.buyDate || (first.dateAdded ? new Date(first.dateAdded).toISOString().slice(0,10) : todayStr());
 
-  // Pouze nákupní cena — uživatel ji zadává jako vše-inclusive (cena + poměrná doprava)
-  const castka  = items.reduce((s,i) => s + Number(i.buyPrice||0), 0);
+  const eurItems = items.filter(i => (i.buyCurrency||'CZK').toUpperCase() === 'EUR');
+  const czkItems = items.filter(i => (i.buyCurrency||'CZK').toUpperCase() !== 'EUR');
+  const castkaCziEur = eurItems.reduce((s,i) => s + Number(i.buyPrice||0), 0);
+  const castkaCzk    = czkItems.reduce((s,i) => s + Number(i.buyPrice||0), 0);
+
+  let kurzInfo = null;
+  let castka   = castkaCzk;
+
+  if (eurItems.length > 0) {
+    const cnb = await fetchCnbRate(datum, 'EUR');
+    if (cnb) {
+      castka  += castkaCziEur * cnb.rate;
+      kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100,
+                   kurzCnb: Math.round(cnb.rate * 1000) / 1000, kurzDatum: cnb.source };
+    } else {
+      // kurz nedostupný — přidáme surovou hodnotu a upozornění
+      castka += castkaCziEur;
+      kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100, kurzCnb: null, kurzDatum: null };
+    }
+  }
+
+  const eurTag  = kurzInfo ? ` (${kurzInfo.castkaCizi} EUR)` : '';
   const popis   = items.length === 1
-    ? `${first.name || 'Nákup'}${!allCzk ? ` (${first.buyCurrency} — přepočti ručně)` : ''}`
-    : `Nákup: ${items.map(i => i.name || '?').join(' · ')}${!allCzk ? ' (různé měny — přepočti ručně)' : ''}`;
-  const breakdown = items.map(i => `${i.name||'?'}: ${Number(i.buyPrice||0)} Kč`).join(' | ');
+    ? `${first.name || 'Nákup'}${eurTag}`
+    : `Nákup: ${items.map(i => i.name || '?').join(' · ')}${eurTag}`;
+
+  const breakdown = items.map(i => {
+    const cur = (i.buyCurrency||'CZK').toUpperCase();
+    const p   = Number(i.buyPrice||0);
+    if (cur === 'EUR' && kurzInfo?.kurzCnb)
+      return `${i.name||'?'}: ${p} EUR × ${kurzInfo.kurzCnb} = ${Math.round(p * kurzInfo.kurzCnb)} Kč`;
+    return `${i.name||'?'}: ${p} ${cur}`;
+  }).join(' | ');
+
   const { addDoc } = window._firebase;
-  await addDoc(col('transakce'), {
+  const record = {
     typ: 'vydej', datum, popis,
     doklad: first.orderNum || '',
     castka: Math.round(castka * 100) / 100,
     kategorie: 'nakup_zbozi', ucet: 'bank', zdanitelny: true,
-    poznamka: `Importováno ze SKLAD. · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
-  });
+    poznamka: `Importováno ze SKLAD.${kurzInfo && !kurzInfo.kurzCnb ? ' ⚠️ kurz ČNB nedostupný — překontroluj částku' : ''} · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
+  };
+  if (kurzInfo?.kurzCnb) Object.assign(record, kurzInfo);
+  await addDoc(col('transakce'), record);
 }
 
 async function _syncSkladSaleGroup(items) {
-  const first  = items[0];
-  const datum  = first.payoutDate || first.saleDate || todayStr();
-  const castka = items.reduce((s,i) => s + Number(i.sellPrice||0), 0);
-  const allCzk = items.every(i => (i.sellCurrency || 'CZK') === 'CZK');
+  const first = items[0];
+  const datum = first.payoutDate || first.saleDate || todayStr();
+
+  const eurItems = items.filter(i => (i.sellCurrency||'CZK').toUpperCase() === 'EUR');
+  const czkItems = items.filter(i => (i.sellCurrency||'CZK').toUpperCase() !== 'EUR');
+  const castkaCziEur = eurItems.reduce((s,i) => s + Number(i.sellPrice||0), 0);
+  const castkaCzk    = czkItems.reduce((s,i) => s + Number(i.sellPrice||0), 0);
+
+  let kurzInfo = null;
+  let castka   = castkaCzk;
+
+  if (eurItems.length > 0) {
+    const cnb = await fetchCnbRate(datum, 'EUR');
+    if (cnb) {
+      castka  += castkaCziEur * cnb.rate;
+      kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100,
+                   kurzCnb: Math.round(cnb.rate * 1000) / 1000, kurzDatum: cnb.source };
+    } else {
+      castka  += castkaCziEur;
+      kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100, kurzCnb: null, kurzDatum: null };
+    }
+  }
+
   const kde    = first.soldWhere ? ` · ${first.soldWhere}` : '';
+  const eurTag = kurzInfo ? ` (${kurzInfo.castkaCizi} EUR)` : '';
   const popis  = items.length === 1
-    ? `Prodej: ${first.name || 'položka ze SKLAD.'}${kde}${!allCzk ? ` (${first.sellCurrency} — přepočti ručně)` : ''}`
-    : `Prodej: ${items.map(i => i.name || '?').join(' · ')}${kde}${!allCzk ? ' (různé měny — přepočti ručně)' : ''}`;
-  const breakdown = items.map(i => `${i.name||'?'}: ${Number(i.sellPrice||0)} Kč`).join(' | ');
+    ? `Prodej: ${first.name || 'položka ze SKLAD.'}${kde}${eurTag}`
+    : `Prodej: ${items.map(i => i.name || '?').join(' · ')}${kde}${eurTag}`;
+
+  const breakdown = items.map(i => {
+    const cur = (i.sellCurrency||'CZK').toUpperCase();
+    const p   = Number(i.sellPrice||0);
+    if (cur === 'EUR' && kurzInfo?.kurzCnb)
+      return `${i.name||'?'}: ${p} EUR × ${kurzInfo.kurzCnb} = ${Math.round(p * kurzInfo.kurzCnb)} Kč`;
+    return `${i.name||'?'}: ${p} ${cur}`;
+  }).join(' | ');
+
   const { addDoc } = window._firebase;
-  await addDoc(col('transakce'), {
+  const record = {
     typ: 'prijem', datum, popis,
     doklad: first.saleRef || '',
     castka: Math.round(castka * 100) / 100,
     kategorie: _prodejKategorie(first.soldWhere), ucet: 'bank', zdanitelny: true,
-    poznamka: `Importováno ze SKLAD. · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
-  });
+    poznamka: `Importováno ze SKLAD.${kurzInfo && !kurzInfo.kurzCnb ? ' ⚠️ kurz ČNB nedostupný — překontroluj částku' : ''} · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
+  };
+  if (kurzInfo?.kurzCnb) Object.assign(record, kurzInfo);
+  await addDoc(col('transakce'), record);
 }
 
 function _prodejKategorie(soldWhere) {
