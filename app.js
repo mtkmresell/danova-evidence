@@ -1894,69 +1894,86 @@ async function disconnectSklad() {
 window.disconnectSklad = disconnectSklad;
 
 let _skladSyncLock = false;
+let _skladPendingSnap = null; // nejnovější snapshot přijatý během zpracování
 
 function _startSkladListener(skladUid) {
   if (_skladUnsub) { _skladUnsub(); _skladUnsub = null; }
   const { skladDb, onSnapshot, doc } = window._sklad;
   _skladUnsub = onSnapshot(
     doc(skladDb, 'users', skladUid, 'sklad', 'data'),
-    async snap => {
+    snap => {
+      if (_skladSyncLock) {
+        // Sync právě běží — ulož nejnovější snapshot, zpracuje se po dokončení
+        _skladPendingSnap = snap;
+        return;
+      }
+      _runSkladSync(snap);
+    },
       // Mutex — zabrání souběžnému zpracování více snapshotů najednou
       if (_skladSyncLock) return;
-      _skladSyncLock = true;
-      try {
-        if (!snap.exists()) return;
-        const items = snap.data().items || [];
-
-        // Migrace: skladSyncedSaleIds nikdy nebylo inicializováno (starší verze)
-        if (state.nastaveni.skladSyncedSaleIds === undefined) {
-          await _fixSkladSaleInit(items);
-        }
-
-        // Načti nejčerstvější synced IDs přímo z Firestore (ne jen z paměti),
-        // aby souběžné volání nemohlo zpracovat stejné položky dvakrát
-        const { db, doc: docFn, getDoc, setDoc } = window._firebase;
-        const cfgSnap = await getDoc(docFn(db,'users',state.uid,'nastaveni','config'));
-        const cfg = cfgSnap.exists() ? cfgSnap.data() : state.nastaveni;
-        const synced     = [...(cfg.skladSyncedIds     || [])];
-        const syncedSale = [...(cfg.skladSyncedSaleIds || [])];
-        // Synchronizuj paměť se Firestore
-        state.nastaveni.skladSyncedIds     = [...synced];
-        state.nastaveni.skladSyncedSaleIds = [...syncedSale];
-
-        const newBuys  = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0);
-        const newSales = items.filter(i => i.id && i.saleState === 'paid' && !syncedSale.includes(i.id));
-
-        const buyGroups  = _groupSkladItems(newBuys,  i => i.orderNum ? String(i.orderNum) : null);
-        const saleGroups = _groupSkladItems(newSales, i => i.saleRef  ? `${i.saleRef}__${i.soldWhere||''}` : null);
-
-        for (const group of buyGroups)  { await _syncSkladBuyGroup(group);  group.forEach(i => synced.push(i.id)); }
-        for (const group of saleGroups) { await _syncSkladSaleGroup(group); group.forEach(i => syncedSale.push(i.id)); }
-
-        if (!buyGroups.length && !saleGroups.length) return;
-
-        await setDoc(docFn(db,'users',state.uid,'nastaveni','config'),
-          { skladSyncedIds: synced, skladSyncedSaleIds: syncedSale }, { merge: true });
-        state.nastaveni.skladSyncedIds     = synced;
-        state.nastaveni.skladSyncedSaleIds = syncedSale;
-        _updateSkladSyncInfo();
-
-        if (buyGroups.length) {
-          const ni = buyGroups.reduce((s,g)=>s+g.length,0);
-          showToast(`SKLAD.: ${ni} nákup${ni>1?'ů':''} → ${buyGroups.length} záznam${buyGroups.length>1?'y':'ů'} ve výdajích`, 'success');
-        }
-        if (saleGroups.length) {
-          const ni = saleGroups.reduce((s,g)=>s+g.length,0);
-          showToast(`SKLAD.: ${ni} prodej${ni>1?'ů':''} → ${saleGroups.length} záznam${saleGroups.length>1?'y':'ů'} v příjmech`, 'success');
-        }
-      } catch(e) {
-        console.error('SKLAD. sync error', e);
-      } finally {
-        _skladSyncLock = false;
-      }
+      _runSkladSync(snap);
     },
     err => console.error('SKLAD. listener', err)
   );
+}
+
+async function _runSkladSync(snap) {
+  _skladSyncLock = true;
+  _skladPendingSnap = null;
+  try {
+    if (!snap.exists()) return;
+    const items = snap.data().items || [];
+
+    // Migrace: skladSyncedSaleIds nikdy nebylo inicializováno (starší verze)
+    if (state.nastaveni.skladSyncedSaleIds === undefined) {
+      await _fixSkladSaleInit(items);
+    }
+
+    // Načti nejčerstvější synced IDs přímo z Firestore (ne jen z paměti)
+    const { db, doc: docFn, getDoc, setDoc } = window._firebase;
+    const cfgSnap = await getDoc(docFn(db,'users',state.uid,'nastaveni','config'));
+    const cfg = cfgSnap.exists() ? cfgSnap.data() : state.nastaveni;
+    const synced     = [...(cfg.skladSyncedIds     || [])];
+    const syncedSale = [...(cfg.skladSyncedSaleIds || [])];
+    state.nastaveni.skladSyncedIds     = [...synced];
+    state.nastaveni.skladSyncedSaleIds = [...syncedSale];
+
+    const newBuys  = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0);
+    const newSales = items.filter(i => i.id && i.saleState === 'paid' && !syncedSale.includes(i.id));
+
+    const buyGroups  = _groupSkladItems(newBuys,  i => i.orderNum ? String(i.orderNum) : null);
+    const saleGroups = _groupSkladItems(newSales, i => i.saleRef  ? `${i.saleRef}__${i.soldWhere||''}` : null);
+
+    for (const group of buyGroups)  { await _syncSkladBuyGroup(group);  group.forEach(i => synced.push(i.id)); }
+    for (const group of saleGroups) { await _syncSkladSaleGroup(group); group.forEach(i => syncedSale.push(i.id)); }
+
+    if (!buyGroups.length && !saleGroups.length) return;
+
+    await setDoc(docFn(db,'users',state.uid,'nastaveni','config'),
+      { skladSyncedIds: synced, skladSyncedSaleIds: syncedSale }, { merge: true });
+    state.nastaveni.skladSyncedIds     = synced;
+    state.nastaveni.skladSyncedSaleIds = syncedSale;
+    _updateSkladSyncInfo();
+
+    if (buyGroups.length) {
+      const ni = buyGroups.reduce((s,g)=>s+g.length,0);
+      showToast(`SKLAD.: ${ni} nákup${ni>1?'ů':''} → ${buyGroups.length} záznam${buyGroups.length>1?'y':'ů'} ve výdajích`, 'success');
+    }
+    if (saleGroups.length) {
+      const ni = saleGroups.reduce((s,g)=>s+g.length,0);
+      showToast(`SKLAD.: ${ni} prodej${ni>1?'ů':''} → ${saleGroups.length} záznam${saleGroups.length>1?'y':'ů'} v příjmech`, 'success');
+    }
+  } catch(e) {
+    console.error('SKLAD. sync error', e);
+  } finally {
+    _skladSyncLock = false;
+    // Pokud přišel snapshot během zpracování, zpracuj ho teď
+    if (_skladPendingSnap) {
+      const pending = _skladPendingSnap;
+      _skladPendingSnap = null;
+      _runSkladSync(pending);
+    }
+  }
 }
 
 async function smazatChybneImporty() {
