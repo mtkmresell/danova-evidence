@@ -384,9 +384,11 @@ a:hover { color: var(--accent-hover); }
   display: none;
   flex-direction: column;
   gap: 1.25rem;
-  padding: 1.5rem;
-  max-width: 1200px;
+  padding: 1.5rem 2rem;
+  max-width: 1600px;
   width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .section.active { display: flex; }
@@ -1325,6 +1327,54 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   .filters-bar { flex-direction: column; align-items: stretch; }
   .filter-select, .search-input { width: 100%; }
   .cs-wrapper.cs-fs { width: 100%; }
+}
+
+/* ── LARGE SCREENS (1400px+) ────────────────────────────── */
+@media (min-width: 1400px) {
+  :root { --sidebar-width: 270px; }
+
+  .section {
+    padding: 2rem 2.5rem;
+    gap: 1.5rem;
+    max-width: 1700px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .accounts-grid {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  }
+
+  .card-header { padding: 1rem 1.5rem; }
+  .card-body   { padding: 1.25rem 1.5rem; }
+}
+
+/* ── VERY LARGE SCREENS (1920px+) ───────────────────────── */
+@media (min-width: 1920px) {
+  :root { --sidebar-width: 300px; }
+
+  .section {
+    padding: 2.5rem 3rem;
+    gap: 1.75rem;
+    max-width: 2100px;
+  }
+
+  .stat-value { font-size: 1.8rem; }
+
+  .accounts-grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+
+  table th, table td { padding: 0.8rem 1.1rem; font-size: 0.88rem; }
+
+  .card-header { padding: 1.1rem 1.75rem; font-size: 0.95rem; }
+  .card-body   { padding: 1.5rem 1.75rem; }
+
+  .modal    { max-width: 660px; }
+  .modal-lg { max-width: 880px; }
+  .modal-xl { max-width: 1050px; }
 }
 
 /* ── PRINT STYLES ───────────────────────────────────────── */
