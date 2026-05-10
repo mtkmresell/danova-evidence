@@ -2038,26 +2038,52 @@ async function _fixSkladSaleInit(skladItems) {
 // Položky bez klíče (orderNum/saleRef prázdné) jdou každá zvlášť.
 // Načte kurz z ČNB pro dané datum a měnu. Zkouší až 5 předchozích dnů (víkendy/svátky).
 // Vrací { rate, source } kde rate = CZK za 1 jednotku měny, source = skutečné datum kurzu.
+// Zkouší získat kurz z ČNB, až 5 dnů zpět (víkendy/svátky).
+// Vrací { rate, source } nebo null.
 async function fetchCnbRate(dateStr, currency) {
-  // Používá ČNB REST API (api.cnb.cz) s podporou CORS a JSON výstupem.
-  // Zkouší až 5 předchozích dnů pro případ víkendů/svátků bez vyhlášeného kurzu.
   let d = new Date(dateStr + 'T12:00:00Z');
   for (let i = 0; i < 5; i++) {
-    const iso = d.toISOString().slice(0, 10);
+    const iso   = d.toISOString().slice(0, 10);
+    const parts = iso.split('-');
+    const ddmmyyyy = `${parts[2]}.${parts[1]}.${parts[0]}`;
+
+    // Pokus 1: ČNB REST API (JSON)
     try {
-      const resp = await fetch(`https://api.cnb.cz/cnbapi/exrates/daily?date=${iso}&lang=EN`);
-      if (resp.ok) {
-        const data = await resp.json();
-        const found = (data.rates || []).find(r => r.currencyCode === currency.toUpperCase());
-        if (found && found.amount && found.rate) {
-          console.log(`[SKLAD] kurz ČNB k ${iso}: 1 ${currency} = ${found.rate / found.amount} CZK`);
-          return { rate: found.rate / found.amount, source: iso };
+      const r1 = await fetch(`https://api.cnb.cz/cnbapi/exrates/daily?date=${iso}&lang=EN`);
+      console.log(`[SKLAD] api.cnb.cz ${iso} → HTTP ${r1.status}`);
+      if (r1.ok) {
+        const body = await r1.json();
+        // Odpověď může být { rates: [...] } nebo přímo pole
+        const list = Array.isArray(body) ? body : (body.rates || []);
+        const found = list.find(r => (r.currencyCode || r.code || '').toUpperCase() === currency.toUpperCase());
+        if (found) {
+          const rate = Number(found.rate) / Number(found.amount || 1);
+          if (rate > 0) { console.log(`[SKLAD] kurz k ${iso}: 1 ${currency} = ${rate} CZK`); return { rate, source: iso }; }
         }
+        console.warn('[SKLAD] api.cnb.cz: EUR nenalezeno v odpovědi', body);
       }
-    } catch (_) {}
+    } catch (e) { console.warn('[SKLAD] api.cnb.cz fetch chyba:', e.message); }
+
+    // Pokus 2: ČNB txt endpoint (pipe-separated)
+    try {
+      const r2 = await fetch(`https://www.cnb.cz/cs/financni_trhy/devizovy_trh/kurzy_devizoveho_trhu/kurzy_devizoveho_trhu/denni_kurz.txt?date=${ddmmyyyy}`);
+      console.log(`[SKLAD] cnb.cz txt ${ddmmyyyy} → HTTP ${r2.status}`);
+      if (r2.ok) {
+        const text = await r2.text();
+        for (const line of text.split('\n')) {
+          const cols = line.split('|');
+          if (cols.length >= 5 && cols[3].trim().toUpperCase() === currency.toUpperCase()) {
+            const rate = Number(cols[4].replace(',', '.')) / Number(cols[2]);
+            if (rate > 0) { console.log(`[SKLAD] kurz (txt) k ${iso}: 1 ${currency} = ${rate} CZK`); return { rate, source: iso }; }
+          }
+        }
+        console.warn('[SKLAD] cnb.cz txt: EUR nenalezeno');
+      }
+    } catch (e) { console.warn('[SKLAD] cnb.cz txt fetch chyba:', e.message); }
+
     d.setUTCDate(d.getUTCDate() - 1);
   }
-  console.warn('[SKLAD] kurz ČNB nedostupný pro', dateStr, currency);
+  console.error('[SKLAD] kurz ČNB nedostupný pro', dateStr, currency, '— oba endpointy selhaly');
   return null;
 }
 
@@ -2095,12 +2121,12 @@ async function _syncSkladBuyGroup(items) {
       kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100,
                    kurzCnb: Math.round(cnb.rate * 1000) / 1000, kurzDatum: cnb.source };
     } else {
-      // kurz nedostupný — přidáme surovou hodnotu a upozornění
-      castka += castkaCziEur;
+      // Kurz nedostupný — zapíšeme 0 Kč, ať uživatel vidí že musí doplnit
       kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100, kurzCnb: null, kurzDatum: null };
     }
   }
 
+  const rateOk  = !!(kurzInfo?.kurzCnb);
   const eurTag  = kurzInfo ? ` (${kurzInfo.castkaCizi} EUR)` : '';
   const popis   = items.length === 1
     ? `${first.name || 'Nákup'}${eurTag}`
@@ -2109,7 +2135,7 @@ async function _syncSkladBuyGroup(items) {
   const breakdown = items.map(i => {
     const cur = (i.buyCurrency||'CZK').toUpperCase();
     const p   = Number(i.buyPrice||0);
-    if (cur === 'EUR' && kurzInfo?.kurzCnb)
+    if (cur === 'EUR' && rateOk)
       return `${i.name||'?'}: ${p} EUR × ${kurzInfo.kurzCnb} = ${Math.round(p * kurzInfo.kurzCnb)} Kč`;
     return `${i.name||'?'}: ${p} ${cur}`;
   }).join(' | ');
@@ -2120,9 +2146,9 @@ async function _syncSkladBuyGroup(items) {
     doklad: first.orderNum || '',
     castka: Math.round(castka * 100) / 100,
     kategorie: 'nakup_zbozi', ucet: 'bank', zdanitelny: true,
-    poznamka: `Importováno ze SKLAD.${kurzInfo && !kurzInfo.kurzCnb ? ' ⚠️ kurz ČNB nedostupný — překontroluj částku' : ''} · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
+    poznamka: `Importováno ze SKLAD.${kurzInfo && !rateOk ? ` ⚠️ DOPLŇ RUČNĚ částku v CZK (${kurzInfo.castkaCizi} EUR, kurz ČNB nedostupný)` : ''} · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
   };
-  if (kurzInfo?.kurzCnb) Object.assign(record, kurzInfo);
+  if (rateOk) Object.assign(record, kurzInfo);
   await addDoc(col('transakce'), record);
 }
 
@@ -2145,11 +2171,11 @@ async function _syncSkladSaleGroup(items) {
       kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100,
                    kurzCnb: Math.round(cnb.rate * 1000) / 1000, kurzDatum: cnb.source };
     } else {
-      castka  += castkaCziEur;
       kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100, kurzCnb: null, kurzDatum: null };
     }
   }
 
+  const rateOk = !!(kurzInfo?.kurzCnb);
   const kde    = first.soldWhere ? ` · ${first.soldWhere}` : '';
   const eurTag = kurzInfo ? ` (${kurzInfo.castkaCizi} EUR)` : '';
   const popis  = items.length === 1
@@ -2159,7 +2185,7 @@ async function _syncSkladSaleGroup(items) {
   const breakdown = items.map(i => {
     const cur = (i.sellCurrency||'CZK').toUpperCase();
     const p   = Number(i.sellPrice||0);
-    if (cur === 'EUR' && kurzInfo?.kurzCnb)
+    if (cur === 'EUR' && rateOk)
       return `${i.name||'?'}: ${p} EUR × ${kurzInfo.kurzCnb} = ${Math.round(p * kurzInfo.kurzCnb)} Kč`;
     return `${i.name||'?'}: ${p} ${cur}`;
   }).join(' | ');
@@ -2170,9 +2196,9 @@ async function _syncSkladSaleGroup(items) {
     doklad: first.saleRef || '',
     castka: Math.round(castka * 100) / 100,
     kategorie: _prodejKategorie(first.soldWhere), ucet: 'bank', zdanitelny: true,
-    poznamka: `Importováno ze SKLAD.${kurzInfo && !kurzInfo.kurzCnb ? ' ⚠️ kurz ČNB nedostupný — překontroluj částku' : ''} · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
+    poznamka: `Importováno ze SKLAD.${kurzInfo && !rateOk ? ` ⚠️ DOPLŇ RUČNĚ částku v CZK (${kurzInfo.castkaCizi} EUR, kurz ČNB nedostupný)` : ''} · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
   };
-  if (kurzInfo?.kurzCnb) Object.assign(record, kurzInfo);
+  if (rateOk) Object.assign(record, kurzInfo);
   await addDoc(col('transakce'), record);
 }
 
