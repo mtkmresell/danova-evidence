@@ -1917,8 +1917,9 @@ async function _runSkladSync(snap) {
   _skladSyncLock = true;
   _skladPendingSnap = null;
   try {
-    if (!snap.exists()) return;
+    if (!snap.exists()) { console.log('[SKLAD] snapshot neexistuje'); return; }
     const items = snap.data().items || [];
+    console.log('[SKLAD] snapshot přijat, položek celkem:', items.length);
 
     // Migrace: skladSyncedSaleIds nikdy nebylo inicializováno (starší verze)
     if (state.nastaveni.skladSyncedSaleIds === undefined) {
@@ -1936,6 +1937,7 @@ async function _runSkladSync(snap) {
 
     const newBuys  = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0);
     const newSales = items.filter(i => i.id && i.saleState === 'paid' && !syncedSale.includes(i.id));
+    console.log('[SKLAD] nové nákupy:', newBuys.length, '| nové prodeje:', newSales.length);
 
     const buyGroups  = _groupSkladItems(newBuys,  i => i.orderNum ? String(i.orderNum) : null);
     const saleGroups = _groupSkladItems(newSales, i => i.saleRef  ? `${i.saleRef}__${i.soldWhere||''}` : null);
@@ -1960,7 +1962,8 @@ async function _runSkladSync(snap) {
       showToast(`SKLAD.: ${ni} prodej${ni>1?'ů':''} → ${saleGroups.length} záznam${saleGroups.length>1?'y':'ů'} v příjmech`, 'success');
     }
   } catch(e) {
-    console.error('SKLAD. sync error', e);
+    console.error('[SKLAD] sync chyba:', e);
+    showToast('⚠️ SKLAD. sync chyba: ' + (e.message || e), 'error');
   } finally {
     _skladSyncLock = false;
     // Pokud přišel snapshot během zpracování, zpracuj ho teď
@@ -2026,26 +2029,25 @@ async function _fixSkladSaleInit(skladItems) {
 // Načte kurz z ČNB pro dané datum a měnu. Zkouší až 5 předchozích dnů (víkendy/svátky).
 // Vrací { rate, source } kde rate = CZK za 1 jednotku měny, source = skutečné datum kurzu.
 async function fetchCnbRate(dateStr, currency) {
+  // Používá ČNB REST API (api.cnb.cz) s podporou CORS a JSON výstupem.
+  // Zkouší až 5 předchozích dnů pro případ víkendů/svátků bez vyhlášeného kurzu.
   let d = new Date(dateStr + 'T12:00:00Z');
   for (let i = 0; i < 5; i++) {
-    const iso   = d.toISOString().slice(0, 10);
-    const parts = iso.split('-');
-    const cnbDate = `${parts[2]}.${parts[1]}.${parts[0]}`;
+    const iso = d.toISOString().slice(0, 10);
     try {
-      const resp = await fetch(`https://www.cnb.cz/cs/financni-trhy/devizovy-trh/kurzy-devizoveho-trhu/kurzy-devizoveho-trhu/denni_kurz.txt?date=${cnbDate}`);
-      if (!resp.ok) { d.setUTCDate(d.getUTCDate() - 1); continue; }
-      const text = await resp.text();
-      for (const line of text.split('\n')) {
-        const cols = line.split('|');
-        if (cols.length >= 5 && cols[3].trim().toUpperCase() === currency.toUpperCase()) {
-          const amount = Number(cols[2]);
-          const rate   = Number(cols[4].replace(',', '.'));
-          if (amount && rate) return { rate: rate / amount, source: iso };
+      const resp = await fetch(`https://api.cnb.cz/cnbapi/exrates/daily?date=${iso}&lang=EN`);
+      if (resp.ok) {
+        const data = await resp.json();
+        const found = (data.rates || []).find(r => r.currencyCode === currency.toUpperCase());
+        if (found && found.amount && found.rate) {
+          console.log(`[SKLAD] kurz ČNB k ${iso}: 1 ${currency} = ${found.rate / found.amount} CZK`);
+          return { rate: found.rate / found.amount, source: iso };
         }
       }
     } catch (_) {}
     d.setUTCDate(d.getUTCDate() - 1);
   }
+  console.warn('[SKLAD] kurz ČNB nedostupný pro', dateStr, currency);
   return null;
 }
 
