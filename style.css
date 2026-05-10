@@ -429,7 +429,7 @@ a:hover { color: var(--accent-hover); }
   font-size: 0.82rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition);
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
   border: 1px solid transparent;
   font-family: inherit;
   white-space: nowrap;
@@ -751,7 +751,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   background: var(--bg-primary);
   color: var(--text-secondary);
   border: none;
-  transition: all var(--transition);
+  transition: background var(--transition), color var(--transition);
   font-family: inherit;
 }
 
@@ -770,7 +770,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.7);
-  backdrop-filter: blur(4px);
+  /* backdrop-filter odstraněn — byl příčinou trhavého vykreslování */
   z-index: 200;
   display: flex;
   align-items: center;
@@ -1565,7 +1565,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   line-height: 1;
   padding: 0;
   font-family: inherit;
-  transition: all var(--transition);
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
 .dp-nav:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--text-muted); }
 
@@ -1594,7 +1594,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   border-radius: var(--radius-sm);
   cursor: pointer;
   color: var(--text-secondary);
-  transition: all var(--transition);
+  transition: background var(--transition), color var(--transition);
 }
 .dp-cell:not(.dp-empty):hover  { background: var(--bg-hover); color: var(--text-primary); }
 .dp-cell.dp-today              { color: var(--accent); font-weight: 600; }
