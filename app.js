@@ -250,31 +250,54 @@ function subscribeData() {
   state.unsubs.forEach(u => u());
   state.unsubs = [];
 
-  const sub = (colName, stateKey, sortField, cb) => {
+  const sub = (colName, stateKey, sortField) => {
     const q = query(col(colName), orderBy(sortField, 'desc'));
     const unsub = onSnapshot(q, snap => {
       state[stateKey] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      cb && cb();
+      scheduleRefresh();
     }, err => console.error(colName, err));
     state.unsubs.push(unsub);
   };
 
-  sub('transakce',       'transakce',      'datum',   refreshAll);
-  sub('fakturyVydane',   'fakturyVydane',  'datum',   refreshAll);
-  sub('fakturyPrijate',  'fakturyPrijate', 'datum',   refreshAll);
-  sub('zasoby',          'zasoby',         'datum',   refreshAll);
-  sub('majetek',         'majetek',        'datumPorizeni', refreshAll);
+  sub('transakce',       'transakce',      'datum');
+  sub('fakturyVydane',   'fakturyVydane',  'datum');
+  sub('fakturyPrijate',  'fakturyPrijate', 'datum');
+  sub('zasoby',          'zasoby',         'datum');
+  sub('majetek',         'majetek',        'datumPorizeni');
+}
+
+// Sekce označené jako zastaralé — vykreslí se při přechodu na ně
+const _dirty = new Set();
+
+// Spouští refresh max jednou za 80 ms bez ohledu na počet příchozích snapshotů
+let _refreshTimer = null;
+function scheduleRefresh() {
+  if (_refreshTimer) clearTimeout(_refreshTimer);
+  _refreshTimer = setTimeout(() => { _refreshTimer = null; refreshAll(); }, 80);
+}
+
+function _renderSection(id) {
+  switch (id) {
+    case 'dashboard':       renderDashboard();       break;
+    case 'penezni-denik':   renderDenik();           break;
+    case 'faktury-vydane':  renderFakturyVydane();   break;
+    case 'faktury-prijate': renderFakturyPrijate();  break;
+    case 'zasoby':          renderZasoby();          break;
+    case 'majetek':         renderMajetek();         break;
+    case 'danovy-prehled':  renderDanovyPrehled();   break;
+  }
 }
 
 function refreshAll() {
-  renderDashboard();
-  renderDenik();
-  renderFakturyVydane();
-  renderFakturyPrijate();
-  renderZasoby();
-  renderMajetek();
-  renderDanovyPrehled();
   updateBadges();
+  const active = document.querySelector('.section.active')?.id;
+  if (active) {
+    _renderSection(active);
+    _dirty.delete(active);
+  }
+  // Ostatní sekce označíme jako zastaralé — vykreslí se až při přechodu
+  ['dashboard','penezni-denik','faktury-vydane','faktury-prijate','zasoby','majetek','danovy-prehled']
+    .forEach(id => { if (id !== active) _dirty.add(id); });
 }
 
 // ── NAVIGATE ──────────────────────────────────────────────────
@@ -302,6 +325,12 @@ function navigate(sectionId) {
   document.getElementById('mobile-title').textContent = titles[sectionId] || '';
   closeSidebar();
   window.scrollTo(0, 0);
+
+  // Pokud má sekce zastaralá data, překresli ji teď
+  if (_dirty.has(sectionId)) {
+    _renderSection(sectionId);
+    _dirty.delete(sectionId);
+  }
 }
 window.navigate = navigate;
 
