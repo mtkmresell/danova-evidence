@@ -1899,17 +1899,18 @@ let _skladPendingSnap = null; // nejnovější snapshot přijatý během zpracov
 function _startSkladListener(skladUid) {
   if (_skladUnsub) { _skladUnsub(); _skladUnsub = null; }
   const { skladDb, onSnapshot, doc } = window._sklad;
+  console.log('[SKLAD] spouštím listener pro uid:', skladUid);
   _skladUnsub = onSnapshot(
     doc(skladDb, 'users', skladUid, 'sklad', 'data'),
     snap => {
+      console.log('[SKLAD] onSnapshot fired | exists:', snap.exists(), '| lock:', _skladSyncLock);
       if (_skladSyncLock) {
-        // Sync právě běží — ulož nejnovější snapshot, zpracuje se po dokončení
         _skladPendingSnap = snap;
         return;
       }
       _runSkladSync(snap);
     },
-    err => console.error('SKLAD. listener', err)
+    err => { console.error('[SKLAD] listener error:', err); showToast('⚠️ SKLAD. listener chyba: ' + err.message, 'error'); }
   );
 }
 
@@ -1934,6 +1935,15 @@ async function _runSkladSync(snap) {
     const syncedSale = [...(cfg.skladSyncedSaleIds || [])];
     state.nastaveni.skladSyncedIds     = [...synced];
     state.nastaveni.skladSyncedSaleIds = [...syncedSale];
+
+    // Detailní log proč každá položka prošla / neprošla filtrem
+    items.forEach(i => {
+      const hasId       = !!i.id;
+      const notSynced   = !synced.includes(i.id);
+      const hasBuyPrice = Number(i.buyPrice) > 0;
+      const passes      = hasId && notSynced && hasBuyPrice;
+      console.log(`[SKLAD] položka "${i.name||'?'}" id=${i.id} buyPrice=${i.buyPrice} inSynced=${!notSynced} → ${passes ? 'PŘIDÁ SE' : `SKIP (id:${hasId} notSynced:${notSynced} price:${hasBuyPrice})`}`);
+    });
 
     const newBuys  = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0);
     const newSales = items.filter(i => i.id && i.saleState === 'paid' && !syncedSale.includes(i.id));
