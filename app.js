@@ -1990,7 +1990,7 @@ async function fetchCnbRate(dateStr, currency) {
     const parts = iso.split('-');
     const cnbDate = `${parts[2]}.${parts[1]}.${parts[0]}`;
     try {
-      const resp = await fetch(`https://www.cnb.cz/cs/financni_trhy/devizovy_trh/kurzy_devizoveho_trhu/kurzy_devizoveho_trhu/denni_kurz.txt?date=${cnbDate}`);
+      const resp = await fetch(`https://www.cnb.cz/cs/financni-trhy/devizovy-trh/kurzy-devizoveho-trhu/kurzy-devizoveho-trhu/denni_kurz.txt?date=${cnbDate}`);
       if (!resp.ok) { d.setUTCDate(d.getUTCDate() - 1); continue; }
       const text = await resp.text();
       for (const line of text.split('\n')) {
