@@ -1993,31 +1993,19 @@ async function _syncSkladBuyGroup(items) {
   const datum   = first.buyDate || (first.dateAdded ? new Date(first.dateAdded).toISOString().slice(0,10) : todayStr());
   const allCzk  = items.every(i => (i.buyCurrency || 'CZK') === 'CZK');
 
-  // Součet nákupních cen za všechny položky
-  const buySum  = items.reduce((s,i) => s + Number(i.buyPrice||0), 0);
-
-  // extraCosts = poplatek za objednávku (ne za položku) → přidáme jen jednou.
-  // Zjistíme unikátní nenulové hodnoty; pokud jsou všechny stejné, jde o sdílený poplatek.
-  const extraVals = [...new Set(items.map(i => Number(i.extraCosts||0)).filter(v => v > 0))];
-  const extraOnce = extraVals.length === 1 ? extraVals[0] : 0;
-  // Pokud mají různé extraCosts (skutečně per-item), sečteme je normálně
-  const extraSum  = extraVals.length > 1
-    ? items.reduce((s,i) => s + Number(i.extraCosts||0), 0)
-    : extraOnce;
-
-  const castka  = buySum + extraSum;
+  // Pouze nákupní cena — uživatel ji zadává jako vše-inclusive (cena + poměrná doprava)
+  const castka  = items.reduce((s,i) => s + Number(i.buyPrice||0), 0);
   const popis   = items.length === 1
     ? `${first.name || 'Nákup'}${!allCzk ? ` (${first.buyCurrency} — přepočti ručně)` : ''}`
     : `Nákup: ${items.map(i => i.name || '?').join(' · ')}${!allCzk ? ' (různé měny — přepočti ručně)' : ''}`;
   const breakdown = items.map(i => `${i.name||'?'}: ${Number(i.buyPrice||0)} Kč`).join(' | ');
-  const extraNote = extraSum > 0 ? ` · poplatky: ${extraSum} Kč` : '';
   const { addDoc } = window._firebase;
   await addDoc(col('transakce'), {
     typ: 'vydej', datum, popis,
     doklad: first.orderNum || '',
     castka: Math.round(castka * 100) / 100,
     kategorie: 'nakup_zbozi', ucet: 'bank', zdanitelny: true,
-    poznamka: `Importováno ze SKLAD. · ${breakdown}${extraNote} · IDs: ${items.map(i=>i.id).join(', ')}`,
+    poznamka: `Importováno ze SKLAD. · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
   });
 }
 
