@@ -1909,10 +1909,6 @@ function _startSkladListener(skladUid) {
       }
       _runSkladSync(snap);
     },
-      // Mutex — zabrání souběžnému zpracování více snapshotů najednou
-      if (_skladSyncLock) return;
-      _runSkladSync(snap);
-    },
     err => console.error('SKLAD. listener', err)
   );
 }
