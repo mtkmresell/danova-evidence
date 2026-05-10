@@ -118,7 +118,7 @@
         </div>
         <button class="btn-logout" id="btn-logout" title="Odhlásit se">⏻</button>
       </div>
-      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v23</div>
+      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v24</div>
     </div>
   </nav>
 
@@ -1224,7 +1224,8 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import {
-    getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
+    getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged,
+    setPersistence, browserLocalPersistence
   } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   import {
     getFirestore, collection, doc, addDoc, updateDoc, deleteDoc,
@@ -1243,6 +1244,8 @@
   const skladApp  = initializeApp(SKLAD_CONFIG, 'sklad');
   const skladAuth = getAuth(skladApp);
   const skladDb   = getFirestore(skladApp);
+  // Explicitní local persistence — session přetrvá i po restartu prohlížeče
+  await setPersistence(skladAuth, browserLocalPersistence);
   window._sklad = { skladAuth, skladDb, signInWithEmailAndPassword, onAuthStateChanged, onSnapshot, doc };
 
   // Import config
@@ -1289,7 +1292,7 @@
 
   // Dynamically load app.js after Firebase is ready
   const script = document.createElement('script');
-  script.src = 'app.js?v=23';
+  script.src = 'app.js?v=24';
   document.body.appendChild(script);
 </script>
 
