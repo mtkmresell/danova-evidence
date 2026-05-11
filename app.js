@@ -587,7 +587,7 @@ function showTransakceDetail(id) {
       </div>
       <div style="display:flex;gap:1rem;align-items:baseline;">
         <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Kurz ČNB</span>
-        <span>1 ${t.menaCizi} = <strong>${t.kurzCnb} CZK</strong>${t.kurzDatum ? ` <span style="font-size:0.82rem;color:var(--text-muted);">(ke dni ${fmtDate(t.kurzDatum)})</span>` : ''}</span>
+        <span>1 ${t.menaCizi} = <strong>${t.kurzCnb} CZK</strong>${t.kurzDatum ? ` <a href="${t.kurzUrl || `https://www.cnb.cz/cs/financni-trhy/devizovy-trh/kurzy-devizoveho-trhu/kurzy-devizoveho-trhu/denni_kurz.txt?date=${fmtDate(t.kurzDatum).replace(/\. /g,'.').replace(/ /g,'')}`}" target="_blank" rel="noopener" style="font-size:0.82rem;color:var(--text-muted);">(kurz ČNB ke dni ${fmtDate(t.kurzDatum)})</a>${t.kurzStazeno ? ` <span style="font-size:0.78rem;color:var(--text-muted);">· staženo ${new Date(t.kurzStazeno).toLocaleString('cs-CZ',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>` : ''}` : ''}</span>
       </div>` : ''}
       ${t.poznamka ? `<div style="display:flex;gap:1rem;align-items:baseline;">
         <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Poznámka</span>
@@ -2052,7 +2052,9 @@ async function fetchCnbRate(dateStr, currency) {
         const rate = data[cur]?.czk;
         if (rate) {
           console.log(`[SKLAD] kurz k ${iso}: 1 ${currency} = ${rate} CZK`);
-          return { rate, source: iso };
+          const p = iso.split('-');
+          const kurzUrl = `https://www.cnb.cz/cs/financni-trhy/devizovy-trh/kurzy-devizoveho-trhu/kurzy-devizoveho-trhu/denni_kurz.txt?date=${p[2]}.${p[1]}.${p[0]}`;
+          return { rate, source: iso, kurzUrl };
         }
       }
     } catch (e) { console.warn('[SKLAD] currency-api fetch chyba:', e.message); }
@@ -2094,7 +2096,8 @@ async function _syncSkladBuyGroup(items) {
     if (cnb) {
       castka  += castkaCziEur * cnb.rate;
       kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100,
-                   kurzCnb: Math.round(cnb.rate * 1000) / 1000, kurzDatum: cnb.source };
+                   kurzCnb: Math.round(cnb.rate * 100) / 100, kurzDatum: cnb.source,
+                   kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString() };
     } else {
       // Kurz nedostupný — zapíšeme 0 Kč, ať uživatel vidí že musí doplnit
       kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100, kurzCnb: null, kurzDatum: null };
@@ -2111,7 +2114,7 @@ async function _syncSkladBuyGroup(items) {
     const cur = (i.buyCurrency||'CZK').toUpperCase();
     const p   = Number(i.buyPrice||0);
     if (cur === 'EUR' && rateOk)
-      return `${i.name||'?'}: ${p} EUR × ${kurzInfo.kurzCnb} = ${Math.round(p * kurzInfo.kurzCnb)} Kč`;
+      return `${i.name||'?'}: ${p} EUR × ${kurzInfo.kurzCnb} = ${(Math.round(p * kurzInfo.kurzCnb * 100) / 100).toFixed(2)} Kč`;
     return `${i.name||'?'}: ${p} ${cur}`;
   }).join(' | ');
 
@@ -2144,7 +2147,8 @@ async function _syncSkladSaleGroup(items) {
     if (cnb) {
       castka  += castkaCziEur * cnb.rate;
       kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100,
-                   kurzCnb: Math.round(cnb.rate * 1000) / 1000, kurzDatum: cnb.source };
+                   kurzCnb: Math.round(cnb.rate * 100) / 100, kurzDatum: cnb.source,
+                   kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString() };
     } else {
       kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100, kurzCnb: null, kurzDatum: null };
     }
@@ -2161,7 +2165,7 @@ async function _syncSkladSaleGroup(items) {
     const cur = (i.sellCurrency||'CZK').toUpperCase();
     const p   = Number(i.sellPrice||0);
     if (cur === 'EUR' && rateOk)
-      return `${i.name||'?'}: ${p} EUR × ${kurzInfo.kurzCnb} = ${Math.round(p * kurzInfo.kurzCnb)} Kč`;
+      return `${i.name||'?'}: ${p} EUR × ${kurzInfo.kurzCnb} = ${(Math.round(p * kurzInfo.kurzCnb * 100) / 100).toFixed(2)} Kč`;
     return `${i.name||'?'}: ${p} ${cur}`;
   }).join(' | ');
 
