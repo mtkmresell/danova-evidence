@@ -296,6 +296,7 @@ function _renderSection(id) {
 
 function refreshAll() {
   updateBadges();
+  checkAutoBackup();
   const active = document.querySelector('.section.active')?.id;
   if (active) {
     _renderSection(active);
@@ -1683,6 +1684,182 @@ function updateBadges() {
   if (bv) { bv.textContent=nezVydane; bv.style.display=nezVydane?'inline':'none'; }
   if (bp) { bp.textContent=nezPrijate; bp.style.display=nezPrijate?'inline':'none'; }
 }
+
+}
+
+// ── ZÁLOHY ────────────────────────────────────────────────────
+const BACKUP_INTERVAL_DAYS = 30;
+const LS_LAST_BACKUP  = 'evidenceLastBackup';
+const LS_SNOOZE       = 'evidenceBackupSnooze';
+
+function _xlsEsc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function _xlsSheet(name, headers, rows) {
+  const hdr = headers.map(h => `<Cell ss:StyleID="H"><Data ss:Type="String">${_xlsEsc(h)}</Data></Cell>`).join('');
+  const dataRows = rows.map(r =>
+    `<Row>${r.map(v => `<Cell><Data ss:Type="String">${_xlsEsc(v)}</Data></Cell>`).join('')}</Row>`
+  ).join('');
+  return `<Worksheet ss:Name="${_xlsEsc(name)}"><Table><Row>${hdr}</Row>${dataRows}</Table></Worksheet>`;
+}
+
+function exportExcelBackup() {
+  const asc = (a, b, k) => (a[k]||'').localeCompare(b[k]||'');
+  const cisla = state.nastaveni.zasobyDokladyCisla || {};
+
+  const sheets = [];
+
+  // 1. Peněžní deník
+  sheets.push(_xlsSheet('Peněžní deník',
+    ['Datum','Doklad č.','Popis','Typ','Kategorie','Účet','Částka CZK','Zdanitelný'],
+    [...state.transakce].sort((a,b)=>asc(a,b,'datum')).map(t => [
+      t.datum||'', t.doklad||'', t.popis||'',
+      t.typ==='prijem'?'Příjem':'Výdaj',
+      getCatLabel(t.kategorie, t.typ), t.ucet||'',
+      t.castka||0, t.zdanitelny?'Ano':'Ne'
+    ])
+  ));
+
+  // 2. Faktury vydané
+  sheets.push(_xlsSheet('Faktury vydané',
+    ['Číslo','Datum','Splatnost','Odběratel','Celkem CZK','Stav'],
+    [...state.fakturyVydane].sort((a,b)=>asc(a,b,'datum')).map(f => [
+      f.cislo||'', f.datum||'', f.splatnost||'', f.odberatel||'', f.celkem||0, f.stav||''
+    ])
+  ));
+
+  // 3. Faktury přijaté
+  sheets.push(_xlsSheet('Faktury přijaté',
+    ['Číslo','Datum','Splatnost','Dodavatel','Kategorie','Částka CZK','Stav'],
+    [...state.fakturyPrijate].sort((a,b)=>asc(a,b,'datum')).map(f => [
+      f.cislo||'', f.datum||'', f.splatnost||'', f.dodavatel||'',
+      VYDAJE_KATEGORIE.find(c=>c.id===f.kategorie)?.label || f.kategorie||'',
+      f.castka||0, f.stav||''
+    ])
+  ));
+
+  // 4. Zásoby – příjmy ze SKLAD
+  const zRows = [];
+  [...(state.skladItems||[])].filter(i=>i.homeDate).sort((a,b)=>asc(a,b,'homeDate')).forEach(i => {
+    zRows.push([
+      cisla[i.id+'__prijem']||'', i.homeDate||'', i.name||'', 'Příjem', i.qty||1,
+      i.buyPrice||0, i.buyCurrency||'CZK', '', i.category||'', i.condition||'', i.size||''
+    ]);
+    if (i.saleState==='paid') zRows.push([
+      cisla[i.id+'__vydej']||'',
+      i.payoutDate||i.saleDate||i.homeDate||'', i.name||'', 'Výdej', i.qty||1,
+      i.buyPrice||0, i.buyCurrency||'CZK', i.saleRef||'', i.category||'', i.condition||'', i.size||''
+    ]);
+  });
+  // Manuální pohyby
+  [...(state.zasoby||[])].sort((a,b)=>asc(a,b,'datum')).forEach(z => {
+    zRows.push([
+      cisla['manual__'+z.id]||'', z.datum||'', z.nazev||'',
+      z.typ==='prijem'?'Příjem':'Výdej', z.ks||1,
+      z.cena||0, z.mena||'CZK', z.saleRef||'', '','',''
+    ]);
+  });
+  sheets.push(_xlsSheet('Zásoby pohyby',
+    ['Č. dokladu','Datum','Název zboží','Pohyb','Ks','Nák. cena','Měna','Doklad prodeje','Kategorie','Stav','Velikost'],
+    zRows
+  ));
+
+  // 5. Majetek
+  sheets.push(_xlsSheet('Majetek',
+    ['Název','Datum pořízení','Pořizovací cena CZK','Odpisová skupina','Datum vyřazení'],
+    [...state.majetek].sort((a,b)=>asc(a,b,'datumPorizeni')).map(m => [
+      m.nazev||'', m.datumPorizeni||'', m.cenaPorizeni||0,
+      `Skupina ${m.skupina||2}`, m.datumVyrazeni||''
+    ])
+  ));
+
+  const workbook = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Styles>
+  <Style ss:ID="H"><Font ss:Bold="1"/><Interior ss:Color="#D9E1F2" ss:Pattern="Solid"/></Style>
+</Styles>
+${sheets.join('\n')}
+</Workbook>`;
+
+  const today = new Date().toISOString().slice(0,10);
+  const blob  = new Blob([workbook], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `danova-evidence-zaloha-${today}.xls`;
+  a.click();
+  _markBackupDone(today);
+}
+window.exportExcelBackup = exportExcelBackup;
+
+function exportJsonBackup() {
+  const today = new Date().toISOString().slice(0,10);
+  const backup = {
+    exportDate: today, appVersion: '44',
+    transakce:      state.transakce,
+    fakturyVydane:  state.fakturyVydane,
+    fakturyPrijate: state.fakturyPrijate,
+    zasoby:         state.zasoby,
+    majetek:        state.majetek,
+    nastaveni:      { ...state.nastaveni }
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `danova-evidence-zaloha-${today}.json`;
+  a.click();
+  _markBackupDone(today);
+}
+window.exportJsonBackup = exportJsonBackup;
+
+function _markBackupDone(today) {
+  localStorage.setItem(LS_LAST_BACKUP, today);
+  localStorage.removeItem(LS_SNOOZE);
+  const banner = document.getElementById('backup-banner');
+  if (banner) banner.style.display = 'none';
+  updateBackupInfo();
+  showToast('Záloha uložena ✓', 'success');
+}
+
+function dismissBackupBanner() {
+  const snooze = new Date(Date.now() + 7*24*60*60*1000).toISOString().slice(0,10);
+  localStorage.setItem(LS_SNOOZE, snooze);
+  const banner = document.getElementById('backup-banner');
+  if (banner) banner.style.display = 'none';
+}
+window.dismissBackupBanner = dismissBackupBanner;
+
+let _backupChecked = false;
+function checkAutoBackup() {
+  if (_backupChecked) return;
+  _backupChecked = true;
+  updateBackupInfo();
+  const snooze = localStorage.getItem(LS_SNOOZE);
+  const today  = new Date().toISOString().slice(0,10);
+  if (snooze && snooze > today) return;
+  const last = localStorage.getItem(LS_LAST_BACKUP);
+  if (!last) { _showBackupBanner(null); return; }
+  const days = (Date.now() - new Date(last).getTime()) / 86400000;
+  if (days >= BACKUP_INTERVAL_DAYS) _showBackupBanner(last);
+}
+
+function _showBackupBanner(lastBackup) {
+  const banner = document.getElementById('backup-banner');
+  if (!banner) return;
+  const el = document.getElementById('backup-banner-last');
+  if (el) el.textContent = lastBackup ? `Poslední záloha: ${fmtDate(lastBackup)}` : 'Zatím jsi žádnou zálohu neudělal';
+  banner.style.display = '';
+}
+
+function updateBackupInfo() {
+  const last = localStorage.getItem(LS_LAST_BACKUP);
+  const el   = document.getElementById('backup-last-info');
+  if (el) el.textContent = last ? fmtDate(last) : 'Nikdy';
+}
+window.updateBackupInfo = updateBackupInfo;
 
 // ── EXPORT CSV ────────────────────────────────────────────────
 function exportCsv(type) {
