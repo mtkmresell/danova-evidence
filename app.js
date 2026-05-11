@@ -375,7 +375,7 @@ function getZasobyHodnota() {
 // ── FORMATOVANI ───────────────────────────────────────────────
 function fmtCzk(amount) {
   if (isNaN(amount)) return '0 Kč';
-  return new Intl.NumberFormat('cs-CZ', { style:'currency', currency:'CZK', maximumFractionDigits: 0 }).format(amount);
+  return new Intl.NumberFormat('cs-CZ', { style:'currency', currency:'CZK', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 }
 
 function fmtDate(dateStr) {
