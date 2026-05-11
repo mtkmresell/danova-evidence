@@ -2151,6 +2151,7 @@ async function aktualizujKurz(transakceId) {
 }
 
 
+function _groupSkladItems(items, keyFn) {
   const map = new Map();
   const solo = [];
   for (const item of items) {
