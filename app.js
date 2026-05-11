@@ -2043,47 +2043,21 @@ async function _fixSkladSaleInit(skladItems) {
 async function fetchCnbRate(dateStr, currency) {
   let d = new Date(dateStr + 'T12:00:00Z');
   for (let i = 0; i < 5; i++) {
-    const iso   = d.toISOString().slice(0, 10);
-    const parts = iso.split('-');
-    const ddmmyyyy = `${parts[2]}.${parts[1]}.${parts[0]}`;
-
-    // Pokus 1: ČNB REST API (JSON)
+    const iso = d.toISOString().slice(0, 10);
     try {
-      const r1 = await fetch(`https://api.cnb.cz/cnbapi/exrates/daily?date=${iso}&lang=EN`);
-      console.log(`[SKLAD] api.cnb.cz ${iso} → HTTP ${r1.status}`);
-      if (r1.ok) {
-        const body = await r1.json();
-        // Odpověď může být { rates: [...] } nebo přímo pole
-        const list = Array.isArray(body) ? body : (body.rates || []);
-        const found = list.find(r => (r.currencyCode || r.code || '').toUpperCase() === currency.toUpperCase());
-        if (found) {
-          const rate = Number(found.rate) / Number(found.amount || 1);
-          if (rate > 0) { console.log(`[SKLAD] kurz k ${iso}: 1 ${currency} = ${rate} CZK`); return { rate, source: iso }; }
+      const resp = await fetch(`https://api.frankfurter.app/${iso}?from=${currency}&to=CZK`);
+      if (resp.ok) {
+        const data = await resp.json();
+        const rate = data.rates?.CZK;
+        if (rate) {
+          console.log(`[SKLAD] kurz k ${iso}: 1 ${currency} = ${rate} CZK (Frankfurter/ECB)`);
+          return { rate, source: iso };
         }
-        console.warn('[SKLAD] api.cnb.cz: EUR nenalezeno v odpovědi', body);
       }
-    } catch (e) { console.warn('[SKLAD] api.cnb.cz fetch chyba:', e.message); }
-
-    // Pokus 2: ČNB txt endpoint (pipe-separated)
-    try {
-      const r2 = await fetch(`https://www.cnb.cz/cs/financni_trhy/devizovy_trh/kurzy_devizoveho_trhu/kurzy_devizoveho_trhu/denni_kurz.txt?date=${ddmmyyyy}`);
-      console.log(`[SKLAD] cnb.cz txt ${ddmmyyyy} → HTTP ${r2.status}`);
-      if (r2.ok) {
-        const text = await r2.text();
-        for (const line of text.split('\n')) {
-          const cols = line.split('|');
-          if (cols.length >= 5 && cols[3].trim().toUpperCase() === currency.toUpperCase()) {
-            const rate = Number(cols[4].replace(',', '.')) / Number(cols[2]);
-            if (rate > 0) { console.log(`[SKLAD] kurz (txt) k ${iso}: 1 ${currency} = ${rate} CZK`); return { rate, source: iso }; }
-          }
-        }
-        console.warn('[SKLAD] cnb.cz txt: EUR nenalezeno');
-      }
-    } catch (e) { console.warn('[SKLAD] cnb.cz txt fetch chyba:', e.message); }
-
+    } catch (e) { console.warn('[SKLAD] frankfurter fetch chyba:', e.message); }
     d.setUTCDate(d.getUTCDate() - 1);
   }
-  console.error('[SKLAD] kurz ČNB nedostupný pro', dateStr, currency, '— oba endpointy selhaly');
+  console.error('[SKLAD] kurz nedostupný pro', dateStr, currency);
   return null;
 }
 
