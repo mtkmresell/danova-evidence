@@ -173,6 +173,10 @@ async function initApp(user) {
   // Subscribe to real-time data
   subscribeData();
 
+  // Auto-update pending EUR rates (ČNB publishes around 14:30)
+  setTimeout(() => _autoUpdatePendingKurzy(), 3000);
+  setInterval(() => _autoUpdatePendingKurzy(), 30 * 60 * 1000);
+
   navigate('dashboard');
 }
 
@@ -464,8 +468,8 @@ function renderDashboard() {
         <td class="td-muted">${fmtDate(t.datum)}</td>
         <td>${esc(t.popis)}</td>
         <td>${accountIcon(t.ucet)}</td>
-        <td class="td-amount-income">${t.typ==='prijem' ? fmtCzk(t.castka) : ''}</td>
-        <td class="td-amount-expense">${t.typ==='vydej' ? fmtCzk(t.castka) : ''}</td>
+        <td class="td-amount-income">${t.typ==='prijem' ? fmtCzk(t.castka)+(t.kurzPending?' ⚠️':'') : ''}</td>
+        <td class="td-amount-expense">${t.typ==='vydej' ? fmtCzk(t.castka)+(t.kurzPending?' ⚠️':'') : ''}</td>
       </tr>`).join('')}
   </tbody></table>`;
 }
@@ -520,8 +524,8 @@ function renderDenik() {
       <td>${esc(t.popis)}</td>
       <td><span title="${esc(katLabel)}" class="td-muted" style="font-size:0.78rem;">${esc(shortKat)}</span></td>
       <td>${accountIcon(t.ucet)}</td>
-      <td class="td-amount-income">${t.typ==='prijem' ? fmtCzk(t.castka) : ''}</td>
-      <td class="td-amount-expense">${t.typ==='vydej' ? fmtCzk(t.castka) : ''}</td>
+      <td class="td-amount-income">${t.typ==='prijem' ? fmtCzk(t.castka)+(t.kurzPending?' ⚠️':'') : ''}</td>
+      <td class="td-amount-expense">${t.typ==='vydej' ? fmtCzk(t.castka)+(t.kurzPending?' ⚠️':'') : ''}</td>
       <td>${t.zdanitelny ? '<span class="badge badge-income">Ano</span>' : '<span class="badge badge-neutral">Ne</span>'}</td>
       <td class="td-actions" onclick="event.stopPropagation()">
         <button class="btn btn-ghost btn-icon" onclick="editTransakce('${t.id}')" title="Upravit">✏️</button>
@@ -588,7 +592,14 @@ function showTransakceDetail(id) {
       <div style="display:flex;gap:1rem;align-items:baseline;">
         <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Kurz ČNB</span>
         <span>1 ${t.menaCizi} = <strong>${t.kurzCnb} CZK</strong>${t.kurzDatum ? ` <a href="${t.kurzUrl || '#'}" target="_blank" rel="noopener" style="font-size:0.82rem;color:var(--text-muted);">(kurz ČNB ke dni ${fmtDate(t.kurzDatum)}${t.kurzDatum !== t.datum ? `, použito pro transakci ${fmtDate(t.datum)}` : ''})</a>${t.kurzStazeno ? ` <span style="font-size:0.78rem;color:var(--text-muted);">· staženo ${new Date(t.kurzStazeno).toLocaleString('cs-CZ',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>` : ''}` : ''}</span>
-      </div>` : ''}
+      </div>
+      ${t.kurzPending ? `<div style="display:flex;gap:1rem;align-items:flex-start;">
+        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;"></span>
+        <div style="background:rgba(255,180,0,0.12);border:1px solid rgba(255,180,0,0.4);border-radius:8px;padding:0.6rem 0.9rem;font-size:0.85rem;">
+          ⚠️ Dnešní kurz ČNB ještě nebyl vyhlášen (zveřejnění kolem 14:30). Použit kurz ze dne ${fmtDate(t.kurzDatum)}.
+          <br><button onclick="aktualizujKurz('${id}')" style="margin-top:0.5rem;padding:0.3rem 0.8rem;border:1px solid var(--accent);border-radius:6px;background:transparent;color:var(--accent);cursor:pointer;font-size:0.82rem;">🔄 Aktualizovat kurz</button>
+        </div>
+      </div>` : ''}` : ''}
       ${t.poznamka ? `<div style="display:flex;gap:1rem;align-items:baseline;">
         <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Poznámka</span>
         <span style="font-size:0.88rem;color:var(--text-secondary);">${esc(t.poznamka)}</span>
@@ -2077,7 +2088,69 @@ async function fetchCnbRate(dateStr, currency) {
   return null;
 }
 
-function _groupSkladItems(items, keyFn) {
+function _isWorkday(dateStr) {
+  const dow = new Date(dateStr + 'T12:00:00Z').getUTCDay();
+  return dow >= 1 && dow <= 5;
+}
+
+async function _autoUpdatePendingKurzy() {
+  const today = todayStr();
+  const { getDocs, query, where, updateDoc, doc } = window._firebase;
+  let snap;
+  try {
+    snap = await getDocs(query(col('transakce'), where('kurzPending', '==', true)));
+  } catch(e) { return; }
+  if (snap.empty) return;
+
+  const byDate = new Map();
+  snap.docs.forEach(d => {
+    const t = d.data();
+    if (!byDate.has(t.datum)) byDate.set(t.datum, []);
+    byDate.get(t.datum).push({ id: d.id, ...t });
+  });
+
+  for (const [datum, records] of byDate) {
+    const cnb = await fetchCnbRate(datum, 'EUR');
+    if (!cnb || cnb.source !== datum) continue; // kurz ještě není vyhlášen
+    for (const t of records) {
+      const newCastka = Math.round(((t.castkaCzkBase || 0) + t.castkaCizi * cnb.rate) * 100) / 100;
+      await updateDoc(doc(window._firebase.db, 'transakce', t.id), {
+        castka: newCastka,
+        kurzCnb: cnb.rate, kurzDatum: cnb.source,
+        kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString(),
+        kurzPending: false,
+      });
+    }
+    showToast(`Kurz ČNB ke dni ${fmtDate(datum)} byl automaticky aktualizován (${records.length} záznam${records.length > 1 ? 'ů' : ''})`);
+  }
+}
+
+async function aktualizujKurz(transakceId) {
+  const { getDoc, updateDoc, doc } = window._firebase;
+  const snap = await getDoc(doc(window._firebase.db, 'transakce', transakceId));
+  if (!snap.exists()) return;
+  const t = snap.data();
+  if (!t.menaCizi || !t.datum) return;
+
+  showToast('Stahuji aktuální kurz ČNB…');
+  const cnb = await fetchCnbRate(t.datum, t.menaCizi);
+  if (!cnb) { showToast('Kurz ČNB zatím není dostupný. Zkuste po 14:30.'); return; }
+  if (cnb.source !== t.datum) {
+    showToast(`Kurz pro ${fmtDate(t.datum)} stále není vyhlášen. Použit kurz z ${fmtDate(cnb.source)}.`);
+  }
+
+  const newCastka = Math.round(((t.castkaCzkBase || 0) + t.castkaCizi * cnb.rate) * 100) / 100;
+  await updateDoc(doc(window._firebase.db, 'transakce', transakceId), {
+    castka: newCastka,
+    kurzCnb: cnb.rate, kurzDatum: cnb.source,
+    kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString(),
+    kurzPending: cnb.source !== t.datum,
+  });
+  showToast(`Kurz aktualizován: 1 ${t.menaCizi} = ${cnb.rate} CZK → ${newCastka.toFixed(2)} Kč`);
+  closeModal('modal-transakce-detail');
+}
+
+
   const map = new Map();
   const solo = [];
   for (const item of items) {
@@ -2108,16 +2181,19 @@ async function _syncSkladBuyGroup(items) {
     const cnb = await fetchCnbRate(datum, 'EUR');
     if (cnb) {
       castka  += castkaCziEur * cnb.rate;
+      const isPending = cnb.source !== datum && datum === todayStr() && _isWorkday(datum);
       kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100,
+                   castkaCzkBase: castkaCzk,
                    kurzCnb: cnb.rate, kurzDatum: cnb.source,
-                   kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString() };
+                   kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString(),
+                   ...(isPending ? { kurzPending: true } : {}) };
     } else {
-      // Kurz nedostupný — zapíšeme 0 Kč, ať uživatel vidí že musí doplnit
-      kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100, kurzCnb: null, kurzDatum: null };
+      kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100, castkaCzkBase: castkaCzk, kurzCnb: null, kurzDatum: null };
     }
   }
 
   const rateOk  = !!(kurzInfo?.kurzCnb);
+  const isPending = !!(kurzInfo?.kurzPending);
   const eurTag  = kurzInfo ? ` (${kurzInfo.castkaCizi} EUR)` : '';
   const popis   = items.length === 1
     ? `${first.name || 'Nákup'}${eurTag}`
@@ -2137,7 +2213,7 @@ async function _syncSkladBuyGroup(items) {
     doklad: first.orderNum || '',
     castka: Math.round(castka * 100) / 100,
     kategorie: 'nakup_zbozi', ucet: 'bank', zdanitelny: true,
-    poznamka: `Importováno ze SKLAD.${kurzInfo && !rateOk ? ` ⚠️ DOPLŇ RUČNĚ částku v CZK (${kurzInfo.castkaCizi} EUR, kurz ČNB nedostupný)` : ''} · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
+    poznamka: `Importováno ze SKLAD.${kurzInfo && !rateOk ? ` ⚠️ DOPLŇ RUČNĚ částku v CZK (${kurzInfo.castkaCizi} EUR, kurz ČNB nedostupný)` : isPending ? ` ⏳ Kurz z ${fmtDate(kurzInfo.kurzDatum)}, dnešní kurz ČNB ještě nebyl vyhlášen` : ''} · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
   };
   if (rateOk) Object.assign(record, kurzInfo);
   await addDoc(col('transakce'), record);
@@ -2159,15 +2235,19 @@ async function _syncSkladSaleGroup(items) {
     const cnb = await fetchCnbRate(datum, 'EUR');
     if (cnb) {
       castka  += castkaCziEur * cnb.rate;
+      const isPending = cnb.source !== datum && datum === todayStr() && _isWorkday(datum);
       kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100,
+                   castkaCzkBase: castkaCzk,
                    kurzCnb: cnb.rate, kurzDatum: cnb.source,
-                   kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString() };
+                   kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString(),
+                   ...(isPending ? { kurzPending: true } : {}) };
     } else {
-      kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100, kurzCnb: null, kurzDatum: null };
+      kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100, castkaCzkBase: castkaCzk, kurzCnb: null, kurzDatum: null };
     }
   }
 
   const rateOk = !!(kurzInfo?.kurzCnb);
+  const isPending = !!(kurzInfo?.kurzPending);
   const kde    = first.soldWhere ? ` · ${first.soldWhere}` : '';
   const eurTag = kurzInfo ? ` (${kurzInfo.castkaCizi} EUR)` : '';
   const popis  = items.length === 1
@@ -2188,7 +2268,7 @@ async function _syncSkladSaleGroup(items) {
     doklad: first.saleRef || '',
     castka: Math.round(castka * 100) / 100,
     kategorie: _prodejKategorie(first.soldWhere), ucet: 'bank', zdanitelny: true,
-    poznamka: `Importováno ze SKLAD.${kurzInfo && !rateOk ? ` ⚠️ DOPLŇ RUČNĚ částku v CZK (${kurzInfo.castkaCizi} EUR, kurz ČNB nedostupný)` : ''} · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
+    poznamka: `Importováno ze SKLAD.${kurzInfo && !rateOk ? ` ⚠️ DOPLŇ RUČNĚ částku v CZK (${kurzInfo.castkaCizi} EUR, kurz ČNB nedostupný)` : isPending ? ` ⏳ Kurz z ${fmtDate(kurzInfo.kurzDatum)}, dnešní kurz ČNB ještě nebyl vyhlášen` : ''} · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
   };
   if (rateOk) Object.assign(record, kurzInfo);
   await addDoc(col('transakce'), record);
