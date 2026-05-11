@@ -118,7 +118,7 @@
         </div>
         <button class="btn-logout" id="btn-logout" title="Odhlásit se">⏻</button>
       </div>
-      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v35</div>
+      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v36</div>
     </div>
   </nav>
 
@@ -872,9 +872,9 @@
 
       <div class="form-group">
         <label class="form-label" id="t-castka-label">Částka<span class="required">*</span></label>
-        <div style="display:flex;gap:0.5rem;">
-          <input type="number" class="form-control" id="t-castka" placeholder="0" min="0" step="0.01" style="flex:1;" oninput="_updateEurPreview()" />
-          <select class="form-control" id="t-mena" style="width:85px;" onchange="_onMenaChange()">
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="number" class="form-control" id="t-castka" placeholder="0" min="0" step="0.01" oninput="_updateEurPreview()" />
+          <select id="t-mena" onchange="_onMenaChange()" style="flex-shrink:0;width:72px;padding:0.45rem 0.4rem;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text-primary);font-size:0.9rem;cursor:pointer;">
             <option value="CZK">CZK</option>
             <option value="EUR">EUR</option>
           </select>
@@ -1299,7 +1299,7 @@
 
   // Dynamically load app.js after Firebase is ready
   const script = document.createElement('script');
-  script.src = 'app.js?v=35';
+  script.src = 'app.js?v=36';
   document.body.appendChild(script);
 </script>
 
