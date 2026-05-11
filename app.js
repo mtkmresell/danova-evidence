@@ -727,45 +727,158 @@ function renderFakturyPrijate() {
 window.renderFakturyPrijate = renderFakturyPrijate;
 
 // ── ZÁSOBY ────────────────────────────────────────────────────
+let _zasobyPohyby = [];
+
 function renderZasoby() {
   const items = state.skladItems || [];
   const syncEnabled = state.nastaveni.skladSyncEnabled;
 
-  // Pohyby: příjem = položka s homeDate, výdej = položka prodaná (paid)
   const pohyby = [];
+
+  // Auto ze SKLAD.
   items.filter(i => i.homeDate).forEach(i => {
-    pohyby.push({ datum: i.homeDate, nazev: i.name||'—', typ: 'prijem', cena: Number(i.buyPrice||0), mena: i.buyCurrency||'CZK' });
+    pohyby.push({
+      datum: i.homeDate, nazev: i.name||'—', typ: 'prijem',
+      cena: Number(i.buyPrice||0), mena: i.buyCurrency||'CZK', source: 'sklad',
+      detail: { typ: 'prijem', kategorie: i.category, velikost: i.size, stav: i.condition,
+                buyDate: i.buyDate, buyWhere: i.buyWhere, orderNum: i.orderNum,
+                location: i.location, invoiceUrl: i.invoiceUrl, note: i.note }
+    });
     if (i.saleState === 'paid') {
-      pohyby.push({ datum: i.payoutDate||i.saleDate||i.homeDate, nazev: i.name||'—', typ: 'vydej', cena: Number(i.buyPrice||0), mena: i.buyCurrency||'CZK' });
+      pohyby.push({
+        datum: i.payoutDate||i.saleDate||i.homeDate, nazev: i.name||'—', typ: 'vydej',
+        cena: Number(i.buyPrice||0), mena: i.buyCurrency||'CZK', source: 'sklad',
+        detail: { typ: 'vydej', saleDate: i.saleDate, payoutDate: i.payoutDate,
+                  soldWhere: i.soldWhere, sellPrice: i.sellPrice, sellCurrency: i.sellCurrency||'CZK',
+                  profit: i.profit, buyPrice: i.buyPrice, buyCurrency: i.buyCurrency||'CZK' }
+      });
     }
   });
+
+  // Manuální záznamy
+  (state.zasoby || []).forEach(z => {
+    pohyby.push({
+      datum: z.datum, nazev: z.nazev||'—', typ: z.typ||'prijem',
+      cena: Number(z.cena||0), mena: z.mena||'CZK', source: 'manual', manualId: z.id,
+      detail: { typ: z.typ, poznamka: z.poznamka||'' }
+    });
+  });
+
   pohyby.sort((a, b) => (b.datum||'').localeCompare(a.datum||''));
+  _zasobyPohyby = pohyby;
 
   const naSkladeItems = items.filter(i => i.homeDate && i.saleState !== 'paid');
   const hodnota = getZasobyHodnota();
+  const manualPrijmy = (state.zasoby||[]).filter(z=>z.typ==='prijem').length;
+  const manualVydeje = (state.zasoby||[]).filter(z=>z.typ==='vydej').length;
   setText('zasoby-pocet',   naSkladeItems.length);
   setText('zasoby-hodnota', fmtCzk(hodnota));
-  setText('zasoby-prijmu',  items.filter(i => i.homeDate).length);
-  setText('zasoby-vydeju',  items.filter(i => i.homeDate && i.saleState === 'paid').length);
+  setText('zasoby-prijmu',  items.filter(i => i.homeDate).length + manualPrijmy);
+  setText('zasoby-vydeju',  items.filter(i => i.homeDate && i.saleState === 'paid').length + manualVydeje);
 
   const tbody = document.getElementById('zasoby-tbody');
-  if (!syncEnabled) {
-    tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state"><div class="empty-icon">🔗</div><h3>SKLAD. není připojen</h3><p>Připoj SKLAD. v Nastavení</p></div></td></tr>`;
-    return;
-  }
   if (!pohyby.length) {
-    tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state"><div class="empty-icon">📦</div><h3>Zatím žádné pohyby</h3><p>Pohyby se zobrazí po přijetí prvního zboží na sklad</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="empty-icon">📦</div><h3>Zatím žádné pohyby</h3><p>${syncEnabled ? 'Pohyby se zobrazí po přijetí prvního zboží na sklad' : 'Připoj SKLAD. v Nastavení nebo přidej pohyb ručně'}</p></div></td></tr>`;
     return;
   }
-  tbody.innerHTML = pohyby.map(p => `<tr>
+  tbody.innerHTML = pohyby.map((p, idx) => `<tr style="cursor:pointer;" onclick="openPohybDetail(${idx})">
     <td class="td-muted" style="white-space:nowrap;">${fmtDate(p.datum)||'—'}</td>
     <td><strong>${esc(p.nazev)}</strong></td>
     <td>${p.typ === 'prijem'
       ? `<span style="color:var(--success);font-weight:600;">↓ Příjem</span>`
       : `<span style="color:var(--text-secondary);">↑ Výdej</span>`}</td>
     <td class="${p.typ === 'prijem' ? 'td-amount-income' : 'td-amount-expense'}">${fmtCzk(p.cena)}${p.mena !== 'CZK' ? ' ' + p.mena : ''}</td>
+    <td style="width:28px;text-align:center;font-size:0.75rem;">${p.source === 'manual' ? '✏️' : ''}</td>
   </tr>`).join('');
 }
+
+function openPohybDetail(idx) {
+  const p = _zasobyPohyby[idx];
+  if (!p) return;
+  const d = p.detail || {};
+  const typLabel = p.typ === 'prijem'
+    ? `<span style="color:var(--success);font-weight:700;">↓ Příjem na sklad</span>`
+    : `<span style="color:var(--text-secondary);font-weight:700;">↑ Výdej ze skladu</span>`;
+  const sourceLabel = p.source === 'manual'
+    ? `<span style="font-size:0.75rem;color:var(--text-muted);">✏️ Manuální záznam</span>`
+    : `<span style="font-size:0.75rem;color:var(--text-muted);">🔗 Ze SKLAD.</span>`;
+
+  const row = (label, val) => val ? `<tr><td style="color:var(--text-muted);font-size:0.82rem;padding:6px 0;width:45%;vertical-align:top;">${label}</td><td style="padding:6px 0;font-size:0.82rem;">${val}</td></tr>` : '';
+  let rows = '';
+
+  if (p.source === 'sklad' && d.typ === 'prijem') {
+    rows += row('Datum přijetí', fmtDate(p.datum));
+    rows += row('Datum nákupu',  fmtDate(d.buyDate));
+    rows += row('Kde koupeno',   esc(d.buyWhere));
+    rows += row('Číslo obj.',    esc(d.orderNum));
+    rows += row('Nák. cena',     fmtCzk(p.cena) + (p.mena !== 'CZK' ? ' ' + p.mena : ''));
+    rows += row('Kategorie',     esc(d.kategorie));
+    rows += row('Velikost',      esc(d.velikost));
+    rows += row('Stav',          esc(d.stav));
+    rows += row('Lokace v SKLAD.', esc(d.location));
+    if (d.invoiceUrl) rows += row('Faktura', `<a href="${esc(d.invoiceUrl)}" target="_blank" style="color:var(--accent);">Otevřít</a>`);
+    rows += row('Poznámka',      esc(d.note));
+  } else if (p.source === 'sklad' && d.typ === 'vydej') {
+    rows += row('Datum výdeje',  fmtDate(p.datum));
+    rows += row('Datum prodeje', fmtDate(d.saleDate));
+    rows += row('Kde prodáno',   esc(d.soldWhere));
+    rows += row('Prodejní cena', d.sellPrice ? fmtCzk(d.sellPrice) + (d.sellCurrency !== 'CZK' ? ' ' + d.sellCurrency : '') : null);
+    rows += row('Nák. cena',     fmtCzk(p.cena) + (p.mena !== 'CZK' ? ' ' + p.mena : ''));
+    rows += row('Zisk',          d.profit != null ? fmtCzk(d.profit) : null);
+  } else {
+    rows += row('Datum',    fmtDate(p.datum));
+    rows += row('Cena',     fmtCzk(p.cena) + (p.mena !== 'CZK' ? ' ' + p.mena : ''));
+    rows += row('Poznámka', esc(d.poznamka));
+  }
+
+  document.getElementById('pohyb-detail-title').textContent = p.nazev;
+  document.getElementById('pohyb-detail-meta').innerHTML = `${typLabel} &nbsp;·&nbsp; ${sourceLabel}`;
+  document.getElementById('pohyb-detail-rows').innerHTML = rows || '<tr><td colspan="2" style="color:var(--text-muted);font-size:0.82rem;">Bez dalších detailů</td></tr>';
+  const delBtn = document.getElementById('pohyb-detail-delete');
+  if (delBtn) {
+    delBtn.style.display = p.source === 'manual' ? '' : 'none';
+    if (p.source === 'manual') delBtn.onclick = () => { confirmDelete('zasoby', p.manualId, 'pohyb'); closeModal('modal-pohyb-detail'); };
+  }
+  openModal('modal-pohyb-detail');
+}
+window.openPohybDetail = openPohybDetail;
+
+function openAddPohybModal() {
+  document.getElementById('mp-id').value = '';
+  document.getElementById('mp-datum').value = new Date().toISOString().slice(0,10);
+  document.getElementById('mp-nazev').value = '';
+  document.getElementById('mp-typ').value = 'prijem';
+  document.getElementById('mp-cena').value = '';
+  document.getElementById('mp-mena').value = 'CZK';
+  document.getElementById('mp-poznamka').value = '';
+  openModal('modal-pohyb');
+}
+window.openAddPohybModal = openAddPohybModal;
+
+async function saveManualPohyb() {
+  const datum = document.getElementById('mp-datum')?.value;
+  const nazev = document.getElementById('mp-nazev')?.value.trim();
+  const typ   = document.getElementById('mp-typ')?.value;
+  const cena  = parseFloat(document.getElementById('mp-cena')?.value);
+  const mena  = document.getElementById('mp-mena')?.value || 'CZK';
+  const pozn  = document.getElementById('mp-poznamka')?.value.trim();
+  if (!datum || !nazev || isNaN(cena) || cena < 0) {
+    showToast('Vyplň datum, název a cenu', 'error'); return;
+  }
+  try {
+    const id = document.getElementById('mp-id')?.value;
+    if (id) {
+      const { updateDoc } = window._firebase;
+      await updateDoc(docRef('zasoby', id), { datum, nazev, typ, cena, mena, poznamka: pozn });
+    } else {
+      const { addDoc } = window._firebase;
+      await addDoc(col('zasoby'), { datum, nazev, typ, cena, mena, poznamka: pozn });
+    }
+    showToast('Pohyb uložen', 'success');
+    closeModal('modal-pohyb');
+  } catch(e) { showToast('Chyba: ' + e.message, 'error'); }
+}
+window.saveManualPohyb = saveManualPohyb;
 
 // ── DLOUHODOBÝ MAJETEK ────────────────────────────────────────
 function renderMajetek() {
