@@ -2041,26 +2041,38 @@ async function _fixSkladSaleInit(skladItems) {
 // Zkouší získat kurz z ČNB, až 5 dnů zpět (víkendy/svátky).
 // Vrací { rate, source } nebo null.
 async function fetchCnbRate(dateStr, currency) {
-  const cur = currency.toLowerCase();
   let d = new Date(dateStr + 'T12:00:00Z');
   for (let i = 0; i < 5; i++) {
     const iso = d.toISOString().slice(0, 10);
-    try {
-      const resp = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${iso}/v1/currencies/${cur}.json`);
-      if (resp.ok) {
-        const data = await resp.json();
-        const rate = data[cur]?.czk;
-        if (rate) {
-          console.log(`[SKLAD] kurz k ${iso}: 1 ${currency} = ${rate} CZK`);
-          const p = iso.split('-');
-          const kurzUrl = `https://www.cnb.cz/cs/financni-trhy/devizovy-trh/kurzy-devizoveho-trhu/kurzy-devizoveho-trhu/denni_kurz.txt?date=${p[2]}.${p[1]}.${p[0]}`;
-          return { rate, source: iso, kurzUrl };
+    const p = iso.split('-');
+    const ddmmyyyy = `${p[2]}.${p[1]}.${p[0]}`;
+    const cnbApiUrl = `https://api.cnb.cz/cnbapi/exrates/daily?date=${iso}&lang=EN`;
+    const kurzUrl   = `https://www.cnb.cz/cs/financni-trhy/devizovy-trh/kurzy-devizoveho-trhu/kurzy-devizoveho-trhu/denni_kurz.txt?date=${ddmmyyyy}`;
+
+    for (const proxy of [
+      `https://corsproxy.io/?${encodeURIComponent(cnbApiUrl)}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(cnbApiUrl)}`
+    ]) {
+      try {
+        const resp = await fetch(proxy);
+        if (resp.ok) {
+          const data = await resp.json();
+          const list = Array.isArray(data) ? data : (data.rates || []);
+          const found = list.find(r => (r.currencyCode || '').toUpperCase() === currency.toUpperCase());
+          if (found) {
+            const rate = Number(found.rate) / Number(found.amount || 1);
+            if (rate > 0) {
+              console.log(`[SKLAD] kurz ČNB k ${iso}: 1 ${currency} = ${rate} CZK`);
+              return { rate, source: iso, kurzUrl };
+            }
+          }
         }
-      }
-    } catch (e) { console.warn('[SKLAD] currency-api fetch chyba:', e.message); }
+      } catch (e) { console.warn('[SKLAD] ČNB proxy chyba:', e.message); }
+    }
+
     d.setUTCDate(d.getUTCDate() - 1);
   }
-  console.error('[SKLAD] kurz nedostupný pro', dateStr, currency);
+  console.error('[SKLAD] kurz ČNB nedostupný pro', dateStr, currency);
   return null;
 }
 
