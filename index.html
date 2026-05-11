@@ -118,7 +118,7 @@
         </div>
         <button class="btn-logout" id="btn-logout" title="Odhlásit se">⏻</button>
       </div>
-      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v38</div>
+      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v39</div>
     </div>
   </nav>
 
@@ -429,6 +429,7 @@
         </div>
         <div class="page-actions">
           <button class="btn btn-secondary btn-sm" onclick="exportCsv('zasoby')">⬇ Export CSV</button>
+          <button class="btn btn-primary" onclick="openAddPohybModal()">+ Přidat pohyb</button>
         </div>
       </div>
 
@@ -462,6 +463,7 @@
               <th>Název zboží</th>
               <th>Pohyb</th>
               <th>Nák. cena</th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="zasoby-tbody">
@@ -1102,6 +1104,77 @@
   </div>
 </div>
 
+<!-- Modal: Přidat pohyb zásoby -->
+<div class="modal-overlay" id="modal-pohyb">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">📦 Přidat pohyb zásob</span>
+      <button class="modal-close" onclick="closeModal('modal-pohyb')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Datum<span class="required">*</span></label>
+          <input type="date" class="form-control" id="mp-datum" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Typ pohybu<span class="required">*</span></label>
+          <select class="form-control" id="mp-typ">
+            <option value="prijem">↓ Příjem na sklad</option>
+            <option value="vydej">↑ Výdej ze skladu</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Název zboží<span class="required">*</span></label>
+        <input type="text" class="form-control" id="mp-nazev" placeholder="např. Nike Air Max 90 vel. 42" />
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Nákupní cena<span class="required">*</span></label>
+          <input type="number" class="form-control" id="mp-cena" placeholder="0" min="0" step="0.01" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Měna</label>
+          <select class="form-control" id="mp-mena">
+            <option value="CZK">CZK</option>
+            <option value="EUR">EUR</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Poznámka</label>
+        <textarea class="form-control" id="mp-poznamka" rows="2" placeholder="Důvod manuálního záznamu, detail..."></textarea>
+      </div>
+      <input type="hidden" id="mp-id" />
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-pohyb')">Zrušit</button>
+      <button class="btn btn-primary" onclick="saveManualPohyb()">💾 Uložit pohyb</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Detail pohybu zásoby -->
+<div class="modal-overlay" id="modal-pohyb-detail">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="pohyb-detail-title"></span>
+      <button class="modal-close" onclick="closeModal('modal-pohyb-detail')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="pohyb-detail-meta" style="margin-bottom:1rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;"></div>
+      <table style="width:100%;border-collapse:collapse;">
+        <tbody id="pohyb-detail-rows"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" id="pohyb-detail-delete" style="display:none;margin-right:auto;">🗑 Smazat</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-pohyb-detail')">Zavřít</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Dlouhodobý majetek -->
 <div class="modal-overlay" id="modal-majetek">
   <div class="modal">
@@ -1251,7 +1324,7 @@
 
   // Dynamically load app.js after Firebase is ready
   const script = document.createElement('script');
-  script.src = 'app.js?v=38';
+  script.src = 'app.js?v=39';
   document.body.appendChild(script);
 </script>
 
