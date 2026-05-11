@@ -118,7 +118,7 @@
         </div>
         <button class="btn-logout" id="btn-logout" title="Odhlásit se">⏻</button>
       </div>
-      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v34</div>
+      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v35</div>
     </div>
   </nav>
 
@@ -832,7 +832,7 @@
       <div class="form-grid">
         <div class="form-group">
           <label class="form-label">Datum<span class="required">*</span></label>
-          <input type="date" class="form-control" id="t-datum" />
+          <input type="date" class="form-control" id="t-datum" onchange="_updateEurPreview()" />
         </div>
         <div class="form-group">
           <label class="form-label">Číslo dokladu</label>
@@ -871,8 +871,15 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label">Částka (Kč)<span class="required">*</span></label>
-        <input type="number" class="form-control" id="t-castka" placeholder="0" min="0" step="0.01" />
+        <label class="form-label" id="t-castka-label">Částka<span class="required">*</span></label>
+        <div style="display:flex;gap:0.5rem;">
+          <input type="number" class="form-control" id="t-castka" placeholder="0" min="0" step="0.01" style="flex:1;" oninput="_updateEurPreview()" />
+          <select class="form-control" id="t-mena" style="width:85px;" onchange="_onMenaChange()">
+            <option value="CZK">CZK</option>
+            <option value="EUR">EUR</option>
+          </select>
+        </div>
+        <div id="t-eur-preview" style="display:none;margin-top:0.4rem;font-size:0.85rem;color:var(--text-muted);padding:0.4rem 0.6rem;background:rgba(100,160,255,0.07);border-radius:6px;"></div>
       </div>
 
       <div class="form-group" id="t-zdanitelny-row">
@@ -1292,7 +1299,7 @@
 
   // Dynamically load app.js after Firebase is ready
   const script = document.createElement('script');
-  script.src = 'app.js?v=34';
+  script.src = 'app.js?v=35';
   document.body.appendChild(script);
 </script>
 
