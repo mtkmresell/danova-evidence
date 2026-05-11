@@ -736,18 +736,23 @@ function renderZasoby() {
   const pohyby = [];
 
   // Auto ze SKLAD.
+  const hidden = state.nastaveni.zasobyHiddenIds || [];
   items.filter(i => i.homeDate).forEach(i => {
-    pohyby.push({
-      datum: i.homeDate, nazev: i.name||'—', typ: 'prijem',
-      cena: Number(i.buyPrice||0), mena: i.buyCurrency||'CZK', source: 'sklad',
-      detail: { typ: 'prijem', kategorie: i.category, velikost: i.size, stav: i.condition,
-                buyDate: i.buyDate, buyWhere: i.buyWhere, orderNum: i.orderNum,
-                location: i.location, invoiceUrl: i.invoiceUrl, note: i.note }
-    });
-    if (i.saleState === 'paid') {
+    if (!hidden.includes(i.id + '__prijem')) {
+      pohyby.push({
+        datum: i.homeDate, nazev: i.name||'—', typ: 'prijem',
+        cena: Number(i.buyPrice||0), mena: i.buyCurrency||'CZK', source: 'sklad',
+        skladId: i.id, skladTyp: 'prijem',
+        detail: { typ: 'prijem', kategorie: i.category, velikost: i.size, stav: i.condition,
+                  buyDate: i.buyDate, buyWhere: i.buyWhere, orderNum: i.orderNum,
+                  location: i.location, invoiceUrl: i.invoiceUrl, note: i.note }
+      });
+    }
+    if (i.saleState === 'paid' && !hidden.includes(i.id + '__vydej')) {
       pohyby.push({
         datum: i.payoutDate||i.saleDate||i.homeDate, nazev: i.name||'—', typ: 'vydej',
         cena: Number(i.buyPrice||0), mena: i.buyCurrency||'CZK', source: 'sklad',
+        skladId: i.id, skladTyp: 'vydej',
         detail: { typ: 'vydej', saleDate: i.saleDate, payoutDate: i.payoutDate,
                   soldWhere: i.soldWhere, sellPrice: i.sellPrice, sellCurrency: i.sellCurrency||'CZK',
                   profit: i.profit, buyPrice: i.buyPrice, buyCurrency: i.buyCurrency||'CZK' }
@@ -836,12 +841,33 @@ function openPohybDetail(idx) {
   document.getElementById('pohyb-detail-rows').innerHTML = rows || '<tr><td colspan="2" style="color:var(--text-muted);font-size:0.82rem;">Bez dalších detailů</td></tr>';
   const delBtn = document.getElementById('pohyb-detail-delete');
   if (delBtn) {
-    delBtn.style.display = p.source === 'manual' ? '' : 'none';
-    if (p.source === 'manual') delBtn.onclick = () => { confirmDelete('zasoby', p.manualId, 'pohyb'); closeModal('modal-pohyb-detail'); };
+    delBtn.style.display = '';
+    if (p.source === 'manual') {
+      delBtn.onclick = () => { confirmDelete('zasoby', p.manualId, 'pohyb'); closeModal('modal-pohyb-detail'); };
+    } else {
+      delBtn.onclick = () => hideSkladPohyb(p.skladId, p.skladTyp);
+    }
   }
   openModal('modal-pohyb-detail');
 }
 window.openPohybDetail = openPohybDetail;
+
+async function hideSkladPohyb(skladId, skladTyp) {
+  if (!skladId || !skladTyp) return;
+  const key = skladId + '__' + skladTyp;
+  const current = state.nastaveni.zasobyHiddenIds || [];
+  if (current.includes(key)) { closeModal('modal-pohyb-detail'); return; }
+  const updated = [...current, key];
+  state.nastaveni.zasobyHiddenIds = updated;
+  closeModal('modal-pohyb-detail');
+  renderZasoby();
+  try {
+    const { db, doc, setDoc } = window._firebase;
+    await setDoc(doc(db,'users',state.uid,'nastaveni','config'), { zasobyHiddenIds: updated }, { merge: true });
+    showToast('Pohyb skryt', 'success');
+  } catch(e) { showToast('Chyba ukládání: '+e.message, 'error'); }
+}
+window.hideSkladPohyb = hideSkladPohyb;
 
 function openAddPohybModal() {
   document.getElementById('mp-id').value = '';
