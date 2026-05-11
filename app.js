@@ -2070,8 +2070,9 @@ async function _runSkladSync(snap) {
       const hasId       = !!i.id;
       const notSynced   = !synced.includes(i.id);
       const hasBuyPrice = Number(i.buyPrice) > 0;
-      const passes      = hasId && notSynced && hasBuyPrice;
-      console.log(`[SKLAD] položka "${i.name||'?'}" id=${i.id} buyPrice=${i.buyPrice} inSynced=${!notSynced} → ${passes ? 'PŘIDÁ SE' : `SKIP (id:${hasId} notSynced:${notSynced} price:${hasBuyPrice})`}`);
+      const hasHomeDate = !!i.homeDate;
+      const passes      = hasId && notSynced && hasBuyPrice && hasHomeDate;
+      console.log(`[SKLAD] položka "${i.name||'?'}" id=${i.id} buyPrice=${i.buyPrice} homeDate=${i.homeDate||'❌'} inSynced=${!notSynced} → ${passes ? 'PŘIDÁ SE' : `SKIP (id:${hasId} notSynced:${notSynced} price:${hasBuyPrice} homeDate:${hasHomeDate})`}`);
     });
 
     const newBuys  = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0 && i.homeDate);
