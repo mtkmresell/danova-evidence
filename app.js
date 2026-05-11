@@ -2041,20 +2041,21 @@ async function _fixSkladSaleInit(skladItems) {
 // Zkouší získat kurz z ČNB, až 5 dnů zpět (víkendy/svátky).
 // Vrací { rate, source } nebo null.
 async function fetchCnbRate(dateStr, currency) {
+  const cur = currency.toLowerCase();
   let d = new Date(dateStr + 'T12:00:00Z');
   for (let i = 0; i < 5; i++) {
     const iso = d.toISOString().slice(0, 10);
     try {
-      const resp = await fetch(`https://api.frankfurter.app/${iso}?from=${currency}&to=CZK`);
+      const resp = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${iso}/v1/currencies/${cur}.json`);
       if (resp.ok) {
         const data = await resp.json();
-        const rate = data.rates?.CZK;
+        const rate = data[cur]?.czk;
         if (rate) {
-          console.log(`[SKLAD] kurz k ${iso}: 1 ${currency} = ${rate} CZK (Frankfurter/ECB)`);
+          console.log(`[SKLAD] kurz k ${iso}: 1 ${currency} = ${rate} CZK`);
           return { rate, source: iso };
         }
       }
-    } catch (e) { console.warn('[SKLAD] frankfurter fetch chyba:', e.message); }
+    } catch (e) { console.warn('[SKLAD] currency-api fetch chyba:', e.message); }
     d.setUTCDate(d.getUTCDate() - 1);
   }
   console.error('[SKLAD] kurz nedostupný pro', dateStr, currency);
