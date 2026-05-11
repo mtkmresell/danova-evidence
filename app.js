@@ -60,6 +60,7 @@ const state = {
   fakturyVydane: [],
   fakturyPrijate: [],
   zasoby: [],
+  skladItems: [],
   majetek: [],
   nastaveni: {},
   unsubs: [],
@@ -373,7 +374,9 @@ function getOdpisyRok(rok) {
 }
 
 function getZasobyHodnota() {
-  return state.zasoby.reduce((s, z) => s + (Number(z.celkemCena)||0), 0);
+  return (state.skladItems || [])
+    .filter(i => i.homeDate && i.saleState !== 'paid' && (i.buyCurrency||'CZK') === 'CZK')
+    .reduce((s, i) => s + Number(i.buyPrice||0), 0);
 }
 
 // ── FORMATOVANI ───────────────────────────────────────────────
@@ -725,30 +728,42 @@ window.renderFakturyPrijate = renderFakturyPrijate;
 
 // ── ZÁSOBY ────────────────────────────────────────────────────
 function renderZasoby() {
-  const data = state.zasoby;
-  const pocet = data.length;
+  const items = state.skladItems || [];
+  const syncEnabled = state.nastaveni.skladSyncEnabled;
+
+  // Pohyby: příjem = položka s homeDate, výdej = položka prodaná (paid)
+  const pohyby = [];
+  items.filter(i => i.homeDate).forEach(i => {
+    pohyby.push({ datum: i.homeDate, nazev: i.name||'—', typ: 'prijem', cena: Number(i.buyPrice||0), mena: i.buyCurrency||'CZK' });
+    if (i.saleState === 'paid') {
+      pohyby.push({ datum: i.payoutDate||i.saleDate||i.homeDate, nazev: i.name||'—', typ: 'vydej', cena: Number(i.buyPrice||0), mena: i.buyCurrency||'CZK' });
+    }
+  });
+  pohyby.sort((a, b) => (b.datum||'').localeCompare(a.datum||''));
+
+  const naSkladeItems = items.filter(i => i.homeDate && i.saleState !== 'paid');
   const hodnota = getZasobyHodnota();
-  const prumer = pocet > 0 ? hodnota / pocet : 0;
-  setText('zasoby-pocet',   pocet);
+  setText('zasoby-pocet',   naSkladeItems.length);
   setText('zasoby-hodnota', fmtCzk(hodnota));
-  setText('zasoby-prumer',  fmtCzk(prumer));
+  setText('zasoby-prijmu',  items.filter(i => i.homeDate).length);
+  setText('zasoby-vydeju',  items.filter(i => i.homeDate && i.saleState === 'paid').length);
 
   const tbody = document.getElementById('zasoby-tbody');
-  if (!data.length) {
-    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📦</div><h3>Zásoby jsou prázdné</h3><p>Přidej zboží, které je aktuálně na skladě</p></div></td></tr>`;
+  if (!syncEnabled) {
+    tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state"><div class="empty-icon">🔗</div><h3>SKLAD. není připojen</h3><p>Připoj SKLAD. v Nastavení</p></div></td></tr>`;
     return;
   }
-  tbody.innerHTML = data.map(z => `<tr>
-    <td><strong>${esc(z.nazev)}</strong></td>
-    <td class="td-muted">${fmtDate(z.datum)}</td>
-    <td>${z.mnozstvi} ks</td>
-    <td>${fmtCzk(z.cenaNaKus)}</td>
-    <td class="td-amount-income">${fmtCzk(z.celkemCena)}</td>
-    <td class="td-muted" style="font-size:0.78rem;">${esc(z.poznamka||'—')}</td>
-    <td class="td-actions">
-      <button class="btn btn-ghost btn-icon" onclick="editZasoba('${z.id}')" title="Upravit">✏️</button>
-      <button class="btn btn-ghost btn-icon" onclick="confirmDelete('zasoby','${z.id}','zásobu')" title="Smazat">🗑</button>
-    </td>
+  if (!pohyby.length) {
+    tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state"><div class="empty-icon">📦</div><h3>Zatím žádné pohyby</h3><p>Pohyby se zobrazí po přijetí prvního zboží na sklad</p></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = pohyby.map(p => `<tr>
+    <td class="td-muted" style="white-space:nowrap;">${fmtDate(p.datum)||'—'}</td>
+    <td><strong>${esc(p.nazev)}</strong></td>
+    <td>${p.typ === 'prijem'
+      ? `<span style="color:var(--success);font-weight:600;">↓ Příjem</span>`
+      : `<span style="color:var(--text-secondary);">↑ Výdej</span>`}</td>
+    <td class="${p.typ === 'prijem' ? 'td-amount-income' : 'td-amount-expense'}">${fmtCzk(p.cena)}${p.mena !== 'CZK' ? ' ' + p.mena : ''}</td>
   </tr>`).join('');
 }
 
@@ -1341,62 +1356,7 @@ async function saveFakturaPrijata() {
 }
 window.saveFakturaPrijata = saveFakturaPrijata;
 
-// ── ZÁSOBY CRUD ───────────────────────────────────────────────
-function editZasoba(id) {
-  const z = state.zasoby.find(x=>x.id===id);
-  if (!z) return;
-  document.getElementById('modal-zasoba-title').textContent = '✏️ Upravit zásobu';
-  document.getElementById('z-id').value = id;
-  setVal('z-nazev',    z.nazev);
-  setVal('z-datum',    z.datum);
-  setVal('z-mnozstvi', z.mnozstvi);
-  setVal('z-cena',     z.cenaNaKus);
-  setVal('z-celkem',   z.celkemCena);
-  setVal('z-poznamka', z.poznamka||'');
-  openModal('modal-zasoba');
-}
-window.editZasoba = editZasoba;
-
-function updateZasobaCelkem() {
-  const mnoz = parseFloat(document.getElementById('z-mnozstvi')?.value)||1;
-  const cena = parseFloat(document.getElementById('z-cena')?.value)||0;
-  const celk = document.getElementById('z-celkem');
-  if (celk) celk.value = (mnoz*cena).toFixed(2);
-}
-window.updateZasobaCelkem = updateZasobaCelkem;
-
-async function saveZasoba() {
-  const nazev  = getVal('z-nazev').trim();
-  const datum  = getVal('z-datum');
-  const mnoz   = parseInt(getVal('z-mnozstvi'))||1;
-  const cena   = parseFloat(getVal('z-cena'));
-  if (!nazev||!datum||isNaN(cena)||cena<0) {
-    showToast('Vyplň název, datum a cenu','error'); return;
-  }
-  const data = {
-    nazev, datum,
-    mnozstvi:   mnoz,
-    cenaNaKus:  cena,
-    celkemCena: mnoz * cena,
-    poznamka:   getVal('z-poznamka'),
-  };
-  const id = getVal('z-id');
-  try {
-    if (id) {
-      const { updateDoc } = window._firebase;
-      await updateDoc(docRef('zasoby',id),data);
-      showToast('Zásoba upravena','success');
-    } else {
-      const { addDoc } = window._firebase;
-      await addDoc(col('zasoby'),data);
-      showToast('Zásoba přidána','success');
-    }
-    closeModal('modal-zasoba');
-    // Also add mnozstvi listener
-    document.getElementById('z-mnozstvi')?.addEventListener('input', updateZasobaCelkem);
-  } catch(e) { showToast('Chyba: '+e.message,'error'); }
-}
-window.saveZasoba = saveZasoba;
+// ── ZÁSOBY CRUD (odstraněno — zásoby jsou auto ze SKLAD.) ─────
 
 // ── MAJETEK CRUD ──────────────────────────────────────────────
 function editMajetek(id) {
@@ -1514,9 +1474,16 @@ function exportCsv(type) {
       [f.cislo, f.datum, f.splatnost||'', esc2(f.dodavatel), getCatLabel(f.kategorie,'vydej'), f.castka, f.stav]);
     filename = `faktury-prijate-${rok}.csv`;
   } else if (type==='zasoby') {
-    headers = ['Název','Datum','Množství','Cena/ks','Celkem'];
-    rows = state.zasoby.map(z=>[esc2(z.nazev),z.datum,z.mnozstvi,z.cenaNaKus,z.celkemCena]);
-    filename = `zasoby-${rok}.csv`;
+    headers = ['Datum','Název','Pohyb','Nák. cena','Měna'];
+    const _zItems = state.skladItems || [];
+    const _pohyby = [];
+    _zItems.filter(i => i.homeDate).forEach(i => {
+      _pohyby.push([i.homeDate, esc2(i.name||''), 'Příjem', i.buyPrice||0, i.buyCurrency||'CZK']);
+      if (i.saleState === 'paid') _pohyby.push([i.payoutDate||i.saleDate||'', esc2(i.name||''), 'Výdej', i.buyPrice||0, i.buyCurrency||'CZK']);
+    });
+    _pohyby.sort((a,b) => (b[0]||'').localeCompare(a[0]||''));
+    rows = _pohyby;
+    filename = `zasoby-pohyby-${rok}.csv`;
   }
 
   const bom = '﻿';
@@ -1967,6 +1934,8 @@ async function _runSkladSync(snap) {
   try {
     if (!snap.exists()) { console.log('[SKLAD] snapshot neexistuje'); return; }
     const items = snap.data().items || [];
+    state.skladItems = items;
+    scheduleRefresh();
     console.log('[SKLAD] snapshot přijat, položek celkem:', items.length);
 
     // Migrace: skladSyncedSaleIds nikdy nebylo inicializováno (starší verze)
@@ -2584,6 +2553,3 @@ document.addEventListener('click', () => {
 
 initCustomComponents();
 
-// Pridaj event listener na z-mnozstvi vo formulari
-document.getElementById('z-mnozstvi')?.addEventListener('input', updateZasobaCelkem);
-document.getElementById('z-cena')?.addEventListener('input', updateZasobaCelkem);

@@ -118,7 +118,7 @@
         </div>
         <button class="btn-logout" id="btn-logout" title="Odhlásit se">⏻</button>
       </div>
-      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v37</div>
+      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v38</div>
     </div>
   </nav>
 
@@ -425,34 +425,32 @@
       <div class="page-header">
         <div class="page-header-left">
           <h1>📦 Zásoby</h1>
-          <p>Evidence hodnoty skladu pro daňové účely (k 31.12.)</p>
+          <p>Pohyby zboží — automaticky ze SKLAD.</p>
         </div>
         <div class="page-actions">
           <button class="btn btn-secondary btn-sm" onclick="exportCsv('zasoby')">⬇ Export CSV</button>
-          <button class="btn btn-primary" onclick="openModal('modal-zasoba')">+ Přidat zásobu</button>
         </div>
-      </div>
-
-      <!-- Info box -->
-      <div style="background:var(--info-bg);border:1px solid var(--accent-border);border-radius:var(--radius-lg);padding:1rem 1.25rem;font-size:0.82rem;color:var(--text-secondary);">
-        <strong style="color:var(--accent);">ℹ️ K čemu slouží zásoby?</strong><br/>
-        Zásoby (neprodané zboží na skladě) snižují daňové výdaje na konci roku. K 31.12. musíš znát hodnotu skladu v pořizovacích cenách. Tato sekce slouží k evidenci toho, co je na skladě a za kolik bylo nakoupeno.
       </div>
 
       <div class="summary-bar">
         <div class="summary-item">
-          <span class="summary-item-label">Počet položek</span>
+          <span class="summary-item-label">Na skladě (ks)</span>
           <span class="summary-item-value blue" id="zasoby-pocet">0</span>
         </div>
         <div class="summary-divider"></div>
         <div class="summary-item">
-          <span class="summary-item-label">Celková hodnota skladu</span>
+          <span class="summary-item-label">Hodnota skladu (CZK)</span>
           <span class="summary-item-value yellow" id="zasoby-hodnota">0 Kč</span>
         </div>
         <div class="summary-divider"></div>
         <div class="summary-item">
-          <span class="summary-item-label">Průměrná pořiz. cena</span>
-          <span class="summary-item-value" id="zasoby-prumer">0 Kč</span>
+          <span class="summary-item-label">Příjmů celkem</span>
+          <span class="summary-item-value" id="zasoby-prijmu">0</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-item-label">Výdejů celkem</span>
+          <span class="summary-item-value" id="zasoby-vydeju">0</span>
         </div>
       </div>
 
@@ -460,17 +458,14 @@
         <table>
           <thead>
             <tr>
+              <th>Datum</th>
               <th>Název zboží</th>
-              <th>Datum nákupu</th>
-              <th>Množství</th>
-              <th>Poř. cena/ks</th>
-              <th>Celkem</th>
-              <th>Poznámka</th>
-              <th></th>
+              <th>Pohyb</th>
+              <th>Nák. cena</th>
             </tr>
           </thead>
           <tbody id="zasoby-tbody">
-            <tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📦</div><h3>Zásoby jsou prázdné</h3><p>Přidej zboží, které je aktuálně na skladě</p></div></td></tr>
+            <tr><td colspan="4"><div class="empty-state"><div class="empty-icon">📦</div><h3>Zatím žádné pohyby</h3><p>Pohyby se zobrazí po přijetí prvního zboží na sklad</p></div></td></tr>
           </tbody>
         </table>
       </div>
@@ -1107,49 +1102,6 @@
   </div>
 </div>
 
-<!-- Modal: Zásoby -->
-<div class="modal-overlay" id="modal-zasoba">
-  <div class="modal">
-    <div class="modal-header">
-      <span class="modal-title" id="modal-zasoba-title">📦 Přidat zásobu</span>
-      <button class="modal-close" onclick="closeModal('modal-zasoba')">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-group">
-        <label class="form-label">Název zboží<span class="required">*</span></label>
-        <input type="text" class="form-control" id="z-nazev" placeholder="např. Nike Air Max 90 vel. 42" />
-      </div>
-      <div class="form-grid">
-        <div class="form-group">
-          <label class="form-label">Datum nákupu<span class="required">*</span></label>
-          <input type="date" class="form-control" id="z-datum" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Množství (ks)<span class="required">*</span></label>
-          <input type="number" class="form-control" id="z-mnozstvi" placeholder="1" min="1" step="1" value="1" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Pořizovací cena/ks (Kč)<span class="required">*</span></label>
-          <input type="number" class="form-control" id="z-cena" placeholder="0" min="0" step="0.01" oninput="updateZasobaCelkem()" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Celková cena (Kč)</label>
-          <input type="number" class="form-control" id="z-celkem" placeholder="0" readonly style="opacity:0.6;cursor:not-allowed;" />
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Poznámka</label>
-        <textarea class="form-control" id="z-poznamka" rows="2" placeholder="Zdroj nákupu, detail..."></textarea>
-      </div>
-      <input type="hidden" id="z-id" />
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('modal-zasoba')">Zrušit</button>
-      <button class="btn btn-primary" onclick="saveZasoba()">💾 Uložit zásobu</button>
-    </div>
-  </div>
-</div>
-
 <!-- Modal: Dlouhodobý majetek -->
 <div class="modal-overlay" id="modal-majetek">
   <div class="modal">
@@ -1299,7 +1251,7 @@
 
   // Dynamically load app.js after Firebase is ready
   const script = document.createElement('script');
-  script.src = 'app.js?v=37';
+  script.src = 'app.js?v=38';
   document.body.appendChild(script);
 </script>
 
