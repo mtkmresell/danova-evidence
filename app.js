@@ -1992,7 +1992,7 @@ async function _runSkladSync(snap) {
       console.log(`[SKLAD] položka "${i.name||'?'}" id=${i.id} buyPrice=${i.buyPrice} inSynced=${!notSynced} → ${passes ? 'PŘIDÁ SE' : `SKIP (id:${hasId} notSynced:${notSynced} price:${hasBuyPrice})`}`);
     });
 
-    const newBuys  = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0);
+    const newBuys  = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0 && i.homeDate);
     const newSales = items.filter(i => i.id && i.saleState === 'paid' && !syncedSale.includes(i.id));
     console.log('[SKLAD] nové nákupy:', newBuys.length, '| nové prodeje:', newSales.length);
 
@@ -2237,7 +2237,7 @@ function _groupSkladItems(items, keyFn) {
 
 async function _syncSkladBuyGroup(items) {
   const first = items[0];
-  const datum = first.buyDate || (first.dateAdded ? new Date(first.dateAdded).toISOString().slice(0,10) : todayStr());
+  const datum = first.homeDate || first.buyDate || (first.dateAdded ? new Date(first.dateAdded).toISOString().slice(0,10) : todayStr());
 
   const eurItems = items.filter(i => (i.buyCurrency||'CZK').toUpperCase() === 'EUR');
   const czkItems = items.filter(i => (i.buyCurrency||'CZK').toUpperCase() !== 'EUR');
