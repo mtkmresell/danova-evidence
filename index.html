@@ -118,7 +118,7 @@
         </div>
         <button class="btn-logout" id="btn-logout" title="Odhlásit se">⏻</button>
       </div>
-      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v42</div>
+      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v43</div>
     </div>
   </nav>
 
@@ -252,6 +252,7 @@
           <option value="9">Září</option><option value="10">Říjen</option>
           <option value="11">Listopad</option><option value="12">Prosinec</option>
         </select>
+        <button class="btn btn-secondary btn-sm" id="sort-btn-denik" onclick="toggleSort('denik')">↓ Nejnovější</button>
       </div>
 
       <!-- Souhrn -->
@@ -317,6 +318,7 @@
           <option value="zaplaceno">Zaplacené</option>
           <option value="po-splatnosti">Po splatnosti</option>
         </select>
+        <button class="btn btn-secondary btn-sm" id="sort-btn-fakturyVydane" onclick="toggleSort('fakturyVydane')">↓ Nejnovější</button>
       </div>
 
       <div class="summary-bar">
@@ -380,6 +382,7 @@
         <select class="filter-select" id="fp-kategorie" onchange="renderFakturyPrijate()">
           <option value="">Kategorie: vše</option>
         </select>
+        <button class="btn btn-secondary btn-sm" id="sort-btn-fakturyPrijate" onclick="toggleSort('fakturyPrijate')">↓ Nejnovější</button>
       </div>
 
       <div class="summary-bar">
@@ -455,6 +458,10 @@
         </div>
       </div>
 
+      <div class="filters-bar">
+        <button class="btn btn-secondary btn-sm" id="sort-btn-zasoby" onclick="toggleSort('zasoby')">↓ Nejnovější</button>
+      </div>
+
       <div class="table-wrapper">
         <table>
           <thead>
@@ -512,6 +519,10 @@
           <span class="summary-item-label">Odpisy za rok</span>
           <span class="summary-item-value red" id="majetek-odpisy-rok">0 Kč</span>
         </div>
+      </div>
+
+      <div class="filters-bar">
+        <button class="btn btn-secondary btn-sm" id="sort-btn-majetek" onclick="toggleSort('majetek')">↓ Nejnovější</button>
       </div>
 
       <div class="table-wrapper">
@@ -1336,7 +1347,7 @@
 
   // Dynamically load app.js after Firebase is ready
   const script = document.createElement('script');
-  script.src = 'app.js?v=42';
+  script.src = 'app.js?v=43';
   document.body.appendChild(script);
 </script>
 

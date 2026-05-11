@@ -64,6 +64,7 @@ const state = {
   majetek: [],
   nastaveni: {},
   unsubs: [],
+  sortDirs: { denik: 'desc', fakturyVydane: 'desc', fakturyPrijate: 'desc', zasoby: 'desc', majetek: 'desc' },
 };
 
 // ── FIREBASE REFS ─────────────────────────────────────────────
@@ -358,6 +359,23 @@ function balanceAccount(ucet) {
   return pocat + prijmy - vydaje;
 }
 
+function toggleSort(section) {
+  state.sortDirs[section] = state.sortDirs[section] === 'desc' ? 'asc' : 'desc';
+  const renders = { denik: renderDenik, fakturyVydane: renderFakturyVydane, fakturyPrijate: renderFakturyPrijate, zasoby: renderZasoby, majetek: renderMajetek };
+  if (renders[section]) renders[section]();
+}
+window.toggleSort = toggleSort;
+
+function updateSortBtn(section) {
+  const btn = document.getElementById('sort-btn-' + section);
+  if (!btn) return;
+  btn.textContent = (state.sortDirs[section] || 'desc') === 'desc' ? '↓ Nejnovější' : '↑ Nejstarší';
+}
+
+function cmpDate(a, b, dir) {
+  return dir === 'desc' ? (b||'').localeCompare(a||'') : (a||'').localeCompare(b||'');
+}
+
 function getOdpisyRok(rok) {
   return state.majetek.reduce((sum, m) => {
     const poriz = m.datumPorizeni || '';
@@ -491,6 +509,9 @@ function renderDenik() {
   if (typF)   tx = tx.filter(t => t.typ === typF);
   if (ucetF)  tx = tx.filter(t => t.ucet === ucetF);
   if (mesicF) tx = tx.filter(t => t.datum && t.datum.substring(5,7) === mesicF.padStart(2,'0'));
+  const _dDir = state.sortDirs.denik || 'desc';
+  tx.sort((a, b) => cmpDate(a.datum, b.datum, _dDir));
+  updateSortBtn('denik');
 
   // Summary (always full year)
   const allTx = txByRok(rok);
@@ -635,6 +656,10 @@ function renderFakturyVydane() {
   if (stavF === 'nezaplaceno') data = data.filter(f => f.stav !== 'zaplaceno' && !(f.splatnost < today));
   if (stavF === 'po-splatnosti') data = data.filter(f => f.stav !== 'zaplaceno' && f.splatnost && f.splatnost < today);
 
+  const _fvDir = state.sortDirs.fakturyVydane || 'desc';
+  data.sort((a, b) => cmpDate(a.datum, b.datum, _fvDir));
+  updateSortBtn('fakturyVydane');
+
   const allRok = state.fakturyVydane.filter(f => f.datum?.startsWith(rok));
   const celkem    = allRok.reduce((s,f)=>s+Number(f.celkem||0),0);
   const zaplaceno = allRok.filter(f=>f.stav==='zaplaceno').reduce((s,f)=>s+Number(f.celkem||0),0);
@@ -687,6 +712,9 @@ function renderFakturyPrijate() {
   if (stavF==='nezaplaceno')  data = data.filter(f=>f.stav!=='zaplaceno'&&!(f.splatnost<today));
   if (stavF==='po-splatnosti') data = data.filter(f=>f.stav!=='zaplaceno'&&f.splatnost&&f.splatnost<today);
   if (katF) data = data.filter(f=>f.kategorie===katF);
+  const _fpDir = state.sortDirs.fakturyPrijate || 'desc';
+  data.sort((a, b) => cmpDate(a.datum, b.datum, _fpDir));
+  updateSortBtn('fakturyPrijate');
 
   const allRok = state.fakturyPrijate.filter(f=>f.datum?.startsWith(rok));
   const celkem    = allRok.reduce((s,f)=>s+Number(f.castka||0),0);
@@ -815,8 +843,10 @@ function renderZasoby() {
     });
   });
 
-  pohyby.sort((a, b) => (b.datum||'').localeCompare(a.datum||''));
   assignDokladCisla(pohyby);
+  const _zDir = state.sortDirs.zasoby || 'desc';
+  pohyby.sort((a, b) => cmpDate(a.datum, b.datum, _zDir));
+  updateSortBtn('zasoby');
   _zasobyPohyby = pohyby;
 
   const naSkladeItems = items.filter(i => i.homeDate && i.saleState !== 'paid');
@@ -969,7 +999,9 @@ window.saveManualPohyb = saveManualPohyb;
 // ── DLOUHODOBÝ MAJETEK ────────────────────────────────────────
 function renderMajetek() {
   const rok = parseInt(state.rok);
-  const data = state.majetek;
+  const _mDir = state.sortDirs.majetek || 'desc';
+  const data = [...state.majetek].sort((a, b) => cmpDate(a.datumPorizeni, b.datumPorizeni, _mDir));
+  updateSortBtn('majetek');
   const pocet = data.filter(m=>!m.datumVyrazeni).length;
   const celkem = data.reduce((s,m)=>s+Number(m.cenaPorizeni||0),0);
   const zustatky = data.filter(m=>!m.datumVyrazeni).reduce((s,m)=>{
