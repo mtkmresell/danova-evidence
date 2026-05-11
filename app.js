@@ -1024,6 +1024,9 @@ function clearTransakceForm() {
   setVal('t-datum', todayStr());
   document.getElementById('t-id').value = '';
   document.getElementById('t-zdanitelny').checked = true;
+  const sel = document.getElementById('t-mena');
+  if (sel) sel.value = 'CZK';
+  _onMenaChange();
   const customGroup = document.getElementById('t-kategorie-custom-group');
   if (customGroup) customGroup.style.display = 'none';
   setTransakceTyp('prijem');
@@ -1057,7 +1060,18 @@ function editTransakce(id) {
     setVal('t-kategorie', t.kategorie);
   }
   setVal('t-ucet',      t.ucet);
-  setVal('t-castka',    t.castka);
+  // Pokud záznam má EUR, zobraz castkaCizi v poli a nastav měnu na EUR
+  if (t.menaCizi === 'EUR' && t.castkaCizi) {
+    const sel = document.getElementById('t-mena');
+    if (sel) sel.value = 'EUR';
+    setVal('t-castka', t.castkaCizi);
+    _onMenaChange();
+  } else {
+    const sel = document.getElementById('t-mena');
+    if (sel) sel.value = 'CZK';
+    setVal('t-castka', t.castka);
+    _onMenaChange();
+  }
   setVal('t-poznamka',  t.poznamka||'');
   document.getElementById('t-zdanitelny').checked = !!t.zdanitelny;
   openModal('modal-transakce');
@@ -1068,7 +1082,8 @@ async function saveTransakce() {
   const typ     = document.getElementById('t-typ').value;
   const datum   = getVal('t-datum');
   const popis   = getVal('t-popis').trim();
-  const castka  = parseFloat(getVal('t-castka'));
+  const mena    = (document.getElementById('t-mena')?.value || 'CZK');
+  const vstup   = parseFloat(getVal('t-castka'));
   let   kategorie = getVal('t-kategorie');
   const ucet    = getVal('t-ucet');
 
@@ -1078,8 +1093,28 @@ async function saveTransakce() {
     if (!kategorie) { showToast('Vyplň název vlastní kategorie', 'error'); return; }
   }
 
-  if (!datum || !popis || isNaN(castka) || castka <= 0 || !kategorie) {
+  if (!datum || !popis || isNaN(vstup) || vstup <= 0 || !kategorie) {
     showToast('Vyplň všechna povinná pole', 'error'); return;
+  }
+
+  // EUR → CZK konverze
+  let castka = vstup;
+  let kurzData = null;
+  if (mena === 'EUR') {
+    showToast('Stahuji kurz ČNB…');
+    const cnb = await fetchCnbRate(datum, 'EUR');
+    if (!cnb) {
+      showToast('Kurz ČNB není dostupný. Zkus po 14:30 nebo zadej částku v CZK.', 'error');
+      return;
+    }
+    castka = Math.round(vstup * cnb.rate * 100) / 100;
+    const isPending = cnb.source !== datum && datum === todayStr() && _isWorkday(datum);
+    kurzData = {
+      menaCizi: 'EUR', castkaCizi: vstup, castkaCzkBase: 0,
+      kurzCnb: cnb.rate, kurzDatum: cnb.source,
+      kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString(),
+      ...(isPending ? { kurzPending: true } : {}),
+    };
   }
 
   const zdanitelny = document.getElementById('t-zdanitelny').checked;
@@ -1094,6 +1129,7 @@ async function saveTransakce() {
     zdanitelny,
     poznamka:  getVal('t-poznamka'),
   };
+  if (kurzData) Object.assign(data, kurzData);
 
   const id = document.getElementById('t-id').value;
   try {
@@ -2087,6 +2123,39 @@ async function fetchCnbRate(dateStr, currency) {
   console.error('[SKLAD] kurz ČNB nedostupný pro', dateStr, currency);
   return null;
 }
+
+let _eurPreviewTimer = null;
+const _eurRateCache = {};
+
+window._onMenaChange = function() {
+  const mena = document.getElementById('t-mena')?.value || 'CZK';
+  const label = document.getElementById('t-castka-label');
+  const input = document.getElementById('t-castka');
+  if (label) label.innerHTML = `Částka (${mena})<span class="required">*</span>`;
+  if (input) input.placeholder = mena === 'EUR' ? '0.00' : '0';
+  _updateEurPreview();
+};
+
+window._updateEurPreview = function() {
+  const mena = document.getElementById('t-mena')?.value || 'CZK';
+  const preview = document.getElementById('t-eur-preview');
+  if (!preview) return;
+  if (mena !== 'EUR') { preview.style.display = 'none'; return; }
+  const vstup = parseFloat(document.getElementById('t-castka')?.value);
+  if (!vstup || vstup <= 0) { preview.style.display = 'none'; return; }
+  const datum = getVal('t-datum') || todayStr();
+  preview.style.display = '';
+  preview.textContent = 'Načítám kurz ČNB…';
+  clearTimeout(_eurPreviewTimer);
+  _eurPreviewTimer = setTimeout(async () => {
+    let cnb = _eurRateCache[datum];
+    if (!cnb) { cnb = await fetchCnbRate(datum, 'EUR'); if (cnb) _eurRateCache[datum] = cnb; }
+    if (!cnb) { preview.textContent = '⚠️ Kurz ČNB nedostupný'; return; }
+    const czk = Math.round(vstup * cnb.rate * 100) / 100;
+    const pendingNote = cnb.source !== datum ? ` · ⚠️ kurz z ${fmtDate(cnb.source)}, dnešní zatím nevyhlášen` : '';
+    preview.textContent = `≈ ${fmtCzk(czk)}  ·  1 EUR = ${cnb.rate} CZK ke dni ${fmtDate(cnb.source)}${pendingNote}`;
+  }, 500);
+};
 
 function _isWorkday(dateStr) {
   const dow = new Date(dateStr + 'T12:00:00Z').getUTCDay();
