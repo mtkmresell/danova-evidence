@@ -118,7 +118,7 @@
         </div>
         <button class="btn-logout" id="btn-logout" title="Odhlásit se">⏻</button>
       </div>
-      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v43</div>
+      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v44</div>
     </div>
   </nav>
 
@@ -130,6 +130,18 @@
 
   <!-- ── MAIN CONTENT ─────────────────────────────────────── -->
   <main id="main-content">
+
+    <!-- Backup banner (zobrazí se při nutnosti zálohy) -->
+    <div id="backup-banner" style="display:none;margin:1rem 1rem 0;padding:0.85rem 1.1rem;background:var(--info-bg);border:1px solid var(--accent-border);border-radius:var(--radius-lg);align-items:center;gap:0.75rem;flex-wrap:wrap;">
+      <span style="font-size:1.1rem;">💾</span>
+      <div style="flex:1;min-width:200px;">
+        <strong style="color:var(--accent);">Čas na měsíční zálohu!</strong>
+        <span id="backup-banner-last" style="font-size:0.82rem;color:var(--text-muted);margin-left:0.5rem;"></span>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="exportExcelBackup()">📊 Excel záloha</button>
+      <button class="btn btn-secondary btn-sm" onclick="exportJsonBackup()">🗄 JSON záloha</button>
+      <button class="btn btn-ghost btn-sm" onclick="dismissBackupBanner()" title="Připomenout za týden" style="opacity:0.6;">Připomenout za týden</button>
+    </div>
 
     <!-- ── DASHBOARD ──────────────────────────────────────── -->
     <section class="section active" id="dashboard">
@@ -798,6 +810,24 @@
         </div>
       </div>
 
+      <!-- Zálohy -->
+      <div class="card">
+        <div class="card-header"><span class="card-title">💾 Zálohy dat</span></div>
+        <div class="card-body">
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">
+            Zálohu stáhni alespoň jednou měsíčně. <strong>Excel záloha</strong> obsahuje všechny tabulky v čitelné podobě (Deník, Faktury, Zásoby, Majetek) — otevři přímo v Excelu nebo Google Sheets. <strong>JSON záloha</strong> je kompletní export pro případ re-importu do jiného systému.
+          </p>
+          <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-bottom:0.75rem;">
+            <button class="btn btn-primary" onclick="exportExcelBackup()">📊 Stáhnout Excel zálohu (.xls)</button>
+            <button class="btn btn-secondary" onclick="exportJsonBackup()">🗄 Stáhnout JSON zálohu</button>
+          </div>
+          <p style="font-size:0.78rem;color:var(--text-muted);">Poslední záloha: <strong id="backup-last-info">—</strong></p>
+          <div style="margin-top:0.75rem;padding:0.75rem;background:var(--bg-secondary);border-radius:var(--radius-md);font-size:0.78rem;color:var(--text-muted);">
+            <strong style="color:var(--text-secondary);">🔥 Firebase záloha:</strong> Firebase automaticky zálohuje data v cloudu. Pro export přímo z Firebase konzole jdi na <em>Firestore → Import/Export</em> v Google Cloud Console (doporučeno pro roční archivaci).
+          </div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header"><span class="card-title">📊 Informace o aplikaci</span></div>
         <div class="card-body" style="font-size:0.82rem;color:var(--text-secondary);display:flex;flex-direction:column;gap:0.5rem;">
@@ -1347,7 +1377,7 @@
 
   // Dynamically load app.js after Firebase is ready
   const script = document.createElement('script');
-  script.src = 'app.js?v=43';
+  script.src = 'app.js?v=44';
   document.body.appendChild(script);
 </script>
 
