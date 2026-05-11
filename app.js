@@ -2096,7 +2096,7 @@ async function _syncSkladBuyGroup(items) {
     if (cnb) {
       castka  += castkaCziEur * cnb.rate;
       kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100,
-                   kurzCnb: Math.round(cnb.rate * 100) / 100, kurzDatum: cnb.source,
+                   kurzCnb: cnb.rate, kurzDatum: cnb.source,
                    kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString() };
     } else {
       // Kurz nedostupný — zapíšeme 0 Kč, ať uživatel vidí že musí doplnit
@@ -2147,7 +2147,7 @@ async function _syncSkladSaleGroup(items) {
     if (cnb) {
       castka  += castkaCziEur * cnb.rate;
       kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100,
-                   kurzCnb: Math.round(cnb.rate * 100) / 100, kurzDatum: cnb.source,
+                   kurzCnb: cnb.rate, kurzDatum: cnb.source,
                    kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString() };
     } else {
       kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100, kurzCnb: null, kurzDatum: null };
