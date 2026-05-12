@@ -1685,8 +1685,6 @@ function updateBadges() {
   if (bp) { bp.textContent=nezPrijate; bp.style.display=nezPrijate?'inline':'none'; }
 }
 
-}
-
 // ── ZÁLOHY ────────────────────────────────────────────────────
 const BACKUP_INTERVAL_DAYS = 30;
 const LS_LAST_BACKUP  = 'evidenceLastBackup';
