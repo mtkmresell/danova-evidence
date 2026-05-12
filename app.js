@@ -377,6 +377,15 @@ function cmpDate(a, b, dir) {
   return dir === 'desc' ? (b||'').localeCompare(a||'') : (a||'').localeCompare(b||'');
 }
 
+// Extrahuje číselnou část z čísla dokladu pro numerické řazení
+// "P202600004" → 202600004, "2026003" → 2026003, "FV2026001" → 2026001
+function _cisloNum(s) { return parseInt((s||'').replace(/\D/g,'')) || 0; }
+
+function cmpCislo(a, b, dir) {
+  const diff = _cisloNum(b) - _cisloNum(a);
+  return dir === 'desc' ? diff : -diff;
+}
+
 function getOdpisyRok(rok) {
   return state.majetek.reduce((sum, m) => {
     const poriz = m.datumPorizeni || '';
@@ -658,7 +667,7 @@ function renderFakturyVydane() {
   if (stavF === 'po-splatnosti') data = data.filter(f => f.stav !== 'zaplaceno' && f.splatnost && f.splatnost < today);
 
   const _fvDir = state.sortDirs.fakturyVydane || 'desc';
-  data.sort((a, b) => cmpDate(a.datum, b.datum, _fvDir));
+  data.sort((a, b) => cmpCislo(a.cislo, b.cislo, _fvDir));
   updateSortBtn('fakturyVydane');
 
   const allRok = state.fakturyVydane.filter(f => f.datum?.startsWith(rok));
@@ -714,7 +723,7 @@ function renderFakturyPrijate() {
   if (stavF==='po-splatnosti') data = data.filter(f=>f.stav!=='zaplaceno'&&f.splatnost&&f.splatnost<today);
   if (katF) data = data.filter(f=>f.kategorie===katF);
   const _fpDir = state.sortDirs.fakturyPrijate || 'desc';
-  data.sort((a, b) => cmpDate(a.datum, b.datum, _fpDir));
+  data.sort((a, b) => cmpCislo(a.cislo, b.cislo, _fpDir));
   updateSortBtn('fakturyPrijate');
 
   const allRok = state.fakturyPrijate.filter(f=>f.datum?.startsWith(rok));
@@ -846,7 +855,14 @@ function renderZasoby() {
 
   assignDokladCisla(pohyby);
   const _zDir = state.sortDirs.zasoby || 'desc';
-  pohyby.sort((a, b) => cmpDate(a.datum, b.datum, _zDir));
+  pohyby.sort((a, b) => {
+    const dc = cmpDate(a.datum, b.datum, _zDir);
+    if (dc !== 0) return dc;
+    // Stejné datum: seřadit dle číselné části dokladu (5 číslic za prefixem)
+    const na = parseInt((a.cisloDokladu||'').slice(-5)) || 0;
+    const nb = parseInt((b.cisloDokladu||'').slice(-5)) || 0;
+    return _zDir === 'desc' ? nb - na : na - nb;
+  });
   updateSortBtn('zasoby');
   _zasobyPohyby = pohyby;
 
