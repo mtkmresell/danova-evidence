@@ -2628,12 +2628,23 @@ async function _autoUpdatePendingKurzy() {
     if (!cnb || cnb.source !== datum) continue; // kurz ještě není vyhlášen
     for (const t of records) {
       const newCastka = Math.round(((t.castkaCzkBase || 0) + t.castkaCizi * cnb.rate) * 100) / 100;
-      await updateDoc(docRef('transakce', t.id), {
+      const autoUpdate = {
         castka: newCastka,
         kurzCnb: cnb.rate, kurzDatum: cnb.source,
         kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString(),
         kurzPending: false,
-      });
+      };
+      if (t.poznamka) {
+        autoUpdate.poznamka = t.poznamka
+          .replace(/ ⏳ Kurz z [^·]+(· ?|$)/g, ' ')
+          .replace(/ ⚠️ DOPLŇ RUČNĚ[^·]+(· ?|$)/g, ' ')
+          .replace(/(\d+(?:\.\d+)?) EUR × \d+(?:\.\d+)? = \d+(?:\.\d+)? Kč/g, (_, eurAmt) => {
+            const czk = Math.round(parseFloat(eurAmt) * cnb.rate * 100) / 100;
+            return `${eurAmt} EUR × ${cnb.rate} = ${czk.toFixed(2)} Kč`;
+          })
+          .replace(/\s{2,}/g, ' ').trim();
+      }
+      await updateDoc(docRef('transakce', t.id), autoUpdate);
     }
     showToast(`Kurz ČNB ke dni ${fmtDate(datum)} byl automaticky aktualizován (${records.length} záznam${records.length > 1 ? 'ů' : ''})`);
   }
@@ -2654,12 +2665,29 @@ async function aktualizujKurz(transakceId) {
   }
 
   const newCastka = Math.round(((t.castkaCzkBase || 0) + t.castkaCizi * cnb.rate) * 100) / 100;
-  await updateDoc(docRef('transakce', transakceId), {
+
+  // Rebuild poznámka: remove ⏳/⚠️ warnings, update EUR × rate = CZK values
+  let newPoznamka = t.poznamka || '';
+  if (newPoznamka) {
+    newPoznamka = newPoznamka
+      .replace(/ ⏳ Kurz z [^·]+(· ?|$)/g, ' ')
+      .replace(/ ⚠️ DOPLŇ RUČNĚ[^·]+(· ?|$)/g, ' ')
+      .replace(/(\d+(?:\.\d+)?) EUR × \d+(?:\.\d+)? = \d+(?:\.\d+)? Kč/g, (_, eurAmt) => {
+        const czk = Math.round(parseFloat(eurAmt) * cnb.rate * 100) / 100;
+        return `${eurAmt} EUR × ${cnb.rate} = ${czk.toFixed(2)} Kč`;
+      })
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
+  const update = {
     castka: newCastka,
     kurzCnb: cnb.rate, kurzDatum: cnb.source,
     kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString(),
     kurzPending: cnb.source !== t.datum,
-  });
+  };
+  if (newPoznamka !== (t.poznamka || '')) update.poznamka = newPoznamka;
+  await updateDoc(docRef('transakce', transakceId), update);
   showToast(`Kurz aktualizován: 1 ${t.menaCizi} = ${cnb.rate} CZK → ${newCastka.toFixed(2)} Kč`);
   closeModal('modal-transakce-detail');
 }
