@@ -2863,10 +2863,19 @@ async function _syncSkladBuyGroup(items) {
 
   const { addDoc } = window._firebase;
 
-  // Determine doklad number: FP if set, otherwise generate ID number
+  // Determine doklad number: FP, KS with custom number, or auto-generate ID
   let dokladCislo = '';
   if (first.dokladTyp === 'fp' && first.fpCislo) {
     dokladCislo = first.fpCislo;
+  } else if (first.dokladTyp === 'ks') {
+    const year = datum.slice(0, 4);
+    const raw = (first.dokladCislo || '').trim();
+    if (raw) {
+      // If user already typed the full number (starts with KS), use as-is; else prepend KS+year
+      dokladCislo = /^KS/i.test(raw) ? raw.toUpperCase() : `KS${year}${raw.padStart(5, '0')}`;
+    } else {
+      dokladCislo = `KS${year}${String(Date.now()).slice(-5)}`;
+    }
   } else {
     const year = datum.slice(0, 4);
     dokladCislo = await _getNextIdNumber(year);
