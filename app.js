@@ -2264,7 +2264,7 @@ function openUctyModal() {
 window.openUctyModal = openUctyModal;
 
 async function resetZasobyCislování() {
-  if (!confirm('Opravdu resetovat číslování zásob (P/V doklady)? Nové záznamy začnou od P202600001. Existující přiřazená čísla budou zachována.')) return;
+  if (!confirm('Resetovat číslování zásob? Všem záznamům budou přiřazena nová čísla P/V od 001 v chronologickém pořadí. Skryté záznamy číslo nedostanou.')) return;
   const { db, doc, setDoc } = window._firebase;
   state.nastaveni.zasobyDokladyCisla = {};
   state.nastaveni.zasobyCounters = {};
