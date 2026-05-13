@@ -617,68 +617,55 @@ function showTransakceDetail(id) {
   const catLabel = getCatLabel(t.kategorie, t.typ);
   const u = getUcty().find(x => x.id === t.ucet);
   const ucetLabel = u ? `${u.icon} ${esc(u.label)}` : esc(t.ucet || '—');
-  const dokladHtml = t.dokladUrl
-    ? `<a href="${esc(t.dokladUrl)}" target="_blank" rel="noopener" style="color:var(--accent);">${esc(t.doklad || '—')}</a>`
+
+  // Look up invoiceUrl from live SKLAD items if this record has skladIds
+  let dokladUrl = t.dokladUrl || null;
+  if (!dokladUrl && t.skladIds && Array.isArray(t.skladIds)) {
+    const hit = (state.skladItems || []).find(i => t.skladIds.includes(i.id) && i.invoiceUrl);
+    if (hit) dokladUrl = hit.invoiceUrl;
+  }
+  const dokladHtml = dokladUrl
+    ? `<a href="${esc(dokladUrl)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">${esc(t.doklad || '—')} 📎</a>`
     : esc(t.doklad || '—');
+
   const typBadge = t.typ === 'prijem'
     ? '<span class="badge badge-income">↑ Příjem</span>'
     : '<span class="badge badge-expense">↓ Výdaj</span>';
   const amountColor = t.typ === 'prijem' ? 'var(--income,var(--success))' : 'var(--expense,var(--danger))';
 
+  const row = (label, val) => `<div style="display:flex;gap:1rem;align-items:baseline;">
+        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">${label}</span>
+        <span>${val}</span>
+      </div>`;
+
   document.getElementById('detail-title').textContent = t.typ === 'prijem' ? '↑ Detail příjmu' : '↓ Detail výdaje';
   document.getElementById('detail-body').innerHTML = `
     <div style="display:flex;flex-direction:column;gap:0.75rem;">
-      <div style="display:flex;gap:1rem;align-items:baseline;">
-        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Typ</span>
-        <span>${typBadge}</span>
-      </div>
-      <div style="display:flex;gap:1rem;align-items:baseline;">
-        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Datum</span>
-        <span>${fmtDate(t.datum)}</span>
-      </div>
-      <div style="display:flex;gap:1rem;align-items:baseline;">
-        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Doklad č.</span>
-        <span>${dokladHtml}</span>
-      </div>
-      <div style="display:flex;gap:1rem;align-items:baseline;">
-        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Popis</span>
-        <span>${esc(t.popis)}</span>
-      </div>
-      <div style="display:flex;gap:1rem;align-items:baseline;">
-        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Kategorie</span>
-        <span style="font-size:0.88rem;">${esc(catLabel)}</span>
-      </div>
-      <div style="display:flex;gap:1rem;align-items:baseline;">
-        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Účet</span>
-        <span>${ucetLabel}</span>
-      </div>
+      ${row('Typ', typBadge)}
+      ${row('Datum', fmtDate(t.datum))}
+      ${row('Doklad č.', dokladHtml)}
+      ${row('Popis', esc(t.popis))}
+      ${row('Daňový vliv', t.zdanitelny ? '<span class="badge badge-income">Ano</span>' : '<span class="badge badge-neutral">Ne</span>')}
       <div style="display:flex;gap:1rem;align-items:baseline;">
         <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Částka</span>
         <span style="font-weight:700;font-size:1.15rem;color:${amountColor};">${fmtCzk(t.castka)}</span>
       </div>
-      <div style="display:flex;gap:1rem;align-items:baseline;">
-        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Daňový vliv</span>
-        <span>${t.zdanitelny ? '<span class="badge badge-income">Ano</span>' : '<span class="badge badge-neutral">Ne</span>'}</span>
-      </div>
-      ${t.kurzCnb ? `<div style="display:flex;gap:1rem;align-items:baseline;">
-        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Původní částka</span>
-        <span style="font-weight:600;">${t.castkaCizi} ${t.menaCizi}</span>
-      </div>
+      ${t.kurzCnb ? `
+      ${row('Původní částka', `<span style="font-weight:600;">${t.castkaCizi} ${t.menaCizi}</span>`)}
       <div style="display:flex;gap:1rem;align-items:baseline;">
         <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Kurz ČNB</span>
         <span>1 ${t.menaCizi} = <strong>${t.kurzCnb} CZK</strong>${t.kurzDatum ? ` <a href="${t.kurzUrl || '#'}" target="_blank" rel="noopener" style="font-size:0.82rem;color:var(--text-muted);">(kurz ČNB ke dni ${fmtDate(t.kurzDatum)}${t.kurzDatum !== t.datum ? `, použito pro transakci ${fmtDate(t.datum)}` : ''})</a>${t.kurzStazeno ? ` <span style="font-size:0.78rem;color:var(--text-muted);">· staženo ${new Date(t.kurzStazeno).toLocaleString('cs-CZ',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>` : ''}` : ''}</span>
       </div>
       ${t.kurzPending ? `<div style="display:flex;gap:1rem;align-items:flex-start;">
-        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;"></span>
+        <span style="min-width:130px;"></span>
         <div style="background:rgba(255,180,0,0.12);border:1px solid rgba(255,180,0,0.4);border-radius:8px;padding:0.6rem 0.9rem;font-size:0.85rem;">
           ⚠️ Dnešní kurz ČNB ještě nebyl vyhlášen (zveřejnění kolem 14:30). Použit kurz ze dne ${fmtDate(t.kurzDatum)}.
           <br><button onclick="aktualizujKurz('${id}')" style="margin-top:0.5rem;padding:0.3rem 0.8rem;border:1px solid var(--accent);border-radius:6px;background:transparent;color:var(--accent);cursor:pointer;font-size:0.82rem;">🔄 Aktualizovat kurz</button>
         </div>
       </div>` : ''}` : ''}
-      ${t.poznamka ? `<div style="display:flex;gap:1rem;align-items:baseline;">
-        <span style="min-width:130px;font-size:0.78rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;">Poznámka</span>
-        <span style="font-size:0.88rem;color:var(--text-secondary);">${esc(t.poznamka)}</span>
-      </div>` : ''}
+      ${row('Účet', ucetLabel)}
+      ${row('Kategorie', `<span style="font-size:0.88rem;">${esc(catLabel)}</span>`)}
+      ${t.poznamka ? row('Poznámka', `<span style="font-size:0.88rem;color:var(--text-secondary);">${esc(t.poznamka)}</span>`) : ''}
     </div>`;
 
   document.getElementById('detail-edit-btn').onclick = () => {
@@ -2638,10 +2625,7 @@ async function _autoUpdatePendingKurzy() {
         autoUpdate.poznamka = t.poznamka
           .replace(/ ⏳ Kurz z [^·]+(· ?|$)/g, ' ')
           .replace(/ ⚠️ DOPLŇ RUČNĚ[^·]+(· ?|$)/g, ' ')
-          .replace(/(\d+(?:\.\d+)?) EUR × \d+(?:\.\d+)? = \d+(?:\.\d+)? Kč/g, (_, eurAmt) => {
-            const czk = Math.round(parseFloat(eurAmt) * cnb.rate * 100) / 100;
-            return `${eurAmt} EUR × ${cnb.rate} = ${czk.toFixed(2)} Kč`;
-          })
+          .replace(/ × \d+(?:\.\d+)? = \d+(?:\.\d+)? Kč/g, '')
           .replace(/\s{2,}/g, ' ').trim();
       }
       await updateDoc(docRef('transakce', t.id), autoUpdate);
@@ -2744,10 +2728,7 @@ async function _syncSkladBuyGroup(items) {
 
   const breakdown = items.map(i => {
     const cur = (i.buyCurrency||'CZK').toUpperCase();
-    const p   = Number(i.buyPrice||0);
-    if (cur === 'EUR' && rateOk)
-      return `${i.name||'?'}: ${p} EUR × ${kurzInfo.kurzCnb} = ${(Math.round(p * kurzInfo.kurzCnb * 100) / 100).toFixed(2)} Kč`;
-    return `${i.name||'?'}: ${p} ${cur}`;
+    return `${i.name||'?'}: ${Number(i.buyPrice||0)} ${cur}`;
   }).join(' | ');
 
   const { addDoc } = window._firebase;
@@ -2813,12 +2794,8 @@ async function _syncSkladSaleGroup(items) {
 
   const breakdown = items.map(i => {
     const cur = (i.sellCurrency||'CZK').toUpperCase();
-    if (cur === 'EUR' && i.sellPriceOrig && rateOk) {
-      const p = Number(i.sellPriceOrig);
-      return `${i.name||'?'}: ${p} EUR × ${kurzInfo.kurzCnb} = ${(Math.round(p * kurzInfo.kurzCnb * 100) / 100).toFixed(2)} Kč`;
-    }
-    const p = Number(i.sellPrice||0);
-    return `${i.name||'?'}: ${p} ${cur === 'EUR' ? 'CZK (EUR bez orig.)' : cur}`;
+    const p = cur === 'EUR' ? Number(i.sellPriceOrig || i.sellPrice || 0) : Number(i.sellPrice || 0);
+    return `${i.name||'?'}: ${p} ${cur}`;
   }).join(' | ');
 
   const { addDoc } = window._firebase;
@@ -2827,7 +2804,7 @@ async function _syncSkladSaleGroup(items) {
     doklad: first.saleRef || '',
     castka: Math.round(castka * 100) / 100,
     kategorie: _prodejKategorie(first.soldWhere), ucet: 'bank', zdanitelny: true,
-    poznamka: `Importováno ze SKLAD.${kurzInfo && !rateOk ? ` ⚠️ DOPLŇ RUČNĚ částku v CZK (${kurzInfo.castkaCizi} EUR, kurz ČNB nedostupný)` : isPending ? ` ⏳ Kurz z ${fmtDate(kurzInfo.kurzDatum)}, dnešní kurz ČNB ještě nebyl vyhlášen` : ''} · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
+    poznamka: `Importováno ze SKLAD.${kurzInfo && !rateOk ? ` ⚠️ DOPLŇ RUČNĚ částku v CZK (${kurzInfo.castkaCizi} EUR, kurz ČNB nedostupný)` : isPending ? ` ⏳ Kurz z ${fmtDate(kurzInfo.kurzDatum)}, dnešní kurz ČNB ještě nebyl vyhlášen` : ''} · ${breakdown}`,
   };
   if (rateOk) Object.assign(record, kurzInfo);
   await addDoc(col('transakce'), record);
