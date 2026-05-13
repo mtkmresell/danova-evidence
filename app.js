@@ -806,16 +806,14 @@ async function _saveCislaToFirestore() {
   try {
     const { db, doc, setDoc } = window._firebase;
     await setDoc(doc(db,'users',state.uid,'nastaveni','config'), {
-      zasobyDokladyCisla: state.nastaveni.zasobyDokladyCisla || {},
-      zasobyCounters:     state.nastaveni.zasobyCounters || {}
+      zasobyDokladyCisla: state.nastaveni.zasobyDokladyCisla || {}
     }, { merge: true });
   } catch(e) { console.warn('[ZÁSOBY] Chyba ukládání čísel dokladů', e); }
   _savingCisla = false;
 }
 
 function assignDokladCisla(pohyby) {
-  const cisla    = state.nastaveni.zasobyDokladyCisla || {};
-  const counters = state.nastaveni.zasobyCounters || {};
+  const cisla = state.nastaveni.zasobyDokladyCisla || {};
   let changed = false;
   // Procházej v chronologickém pořadí aby čísla odpovídala datumu
   const sorted = [...pohyby].sort((a, b) => (a.datum||'').localeCompare(b.datum||''));
@@ -823,18 +821,22 @@ function assignDokladCisla(pohyby) {
     const key = getPohybKey(p);
     if (!key || key === '__') return;
     if (cisla[key]) { p.cisloDokladu = cisla[key]; return; }
-    const year    = (p.datum||new Date().toISOString()).slice(0,4);
-    const prefix  = p.typ === 'prijem' ? 'P' : 'V';
-    const cKey    = prefix + year;
-    counters[cKey] = (counters[cKey] || 0) + 1;
-    const cislo   = `${prefix}${year}${String(counters[cKey]).padStart(5,'0')}`;
-    cisla[key]    = cislo;
+    const year   = (p.datum||new Date().toISOString()).slice(0,4);
+    const prefix = p.typ === 'prijem' ? 'P' : 'V';
+    // Derive next number from actual cisla map — stays correct even after user resets records
+    const regex = new RegExp('^' + prefix + year + '(\\d+)$');
+    let maxN = 0;
+    Object.values(cisla).forEach(c => {
+      const m = c.match(regex);
+      if (m) { const n = parseInt(m[1]); if (n > maxN) maxN = n; }
+    });
+    const cislo = `${prefix}${year}${String(maxN + 1).padStart(5,'0')}`;
+    cisla[key]  = cislo;
     p.cisloDokladu = cislo;
     changed = true;
   });
   if (changed) {
     state.nastaveni.zasobyDokladyCisla = cisla;
-    state.nastaveni.zasobyCounters     = counters;
     _saveCislaToFirestore();
   }
 }
@@ -2231,6 +2233,20 @@ function openUctyModal() {
   renderUctyList();
 }
 window.openUctyModal = openUctyModal;
+
+async function resetZasobyCislování() {
+  if (!confirm('Opravdu resetovat číslování zásob (P/V doklady)? Nové záznamy začnou od P202600001. Existující přiřazená čísla budou zachována.')) return;
+  const { db, doc, setDoc } = window._firebase;
+  state.nastaveni.zasobyDokladyCisla = {};
+  state.nastaveni.zasobyCounters = {};
+  await setDoc(doc(db,'users',state.uid,'nastaveni','config'), {
+    zasobyDokladyCisla: {},
+    zasobyCounters: {}
+  }, { merge: true });
+  renderZasoby();
+  alert('Číslování zásob bylo resetováno.');
+}
+window.resetZasobyCislování = resetZasobyCislování;
 
 function editKategorieRow(typ, index) {
   const key = typ === 'prijem' ? 'custom_prijmy' : 'custom_vydaje';
