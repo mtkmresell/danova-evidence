@@ -118,7 +118,7 @@
         </div>
         <button class="btn-logout" id="btn-logout" title="Odhlásit se">⏻</button>
       </div>
-      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v48</div>
+      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v49</div>
     </div>
   </nav>
 
@@ -709,6 +709,7 @@
         <div class="card-body" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
           <button class="btn btn-secondary" onclick="openKategorieModal()">🏷 Kategorie</button>
           <button class="btn btn-secondary" onclick="openUctyModal()">💳 Účty a platební metody</button>
+          <button class="btn btn-danger" onclick="resetZasobyCislování()" style="margin-left:auto;">🔄 Reset číslování zásob</button>
         </div>
       </div>
 
@@ -1384,7 +1385,7 @@
 
   // Dynamically load app.js after Firebase is ready
   const script = document.createElement('script');
-  script.src = 'app.js?v=48';
+  script.src = 'app.js?v=49';
   document.body.appendChild(script);
 </script>
 
