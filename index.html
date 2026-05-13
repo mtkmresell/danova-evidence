@@ -118,7 +118,7 @@
         </div>
         <button class="btn-logout" id="btn-logout" title="Odhlásit se">⏻</button>
       </div>
-      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v49</div>
+      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v50</div>
     </div>
   </nav>
 
@@ -1166,7 +1166,7 @@
       </table>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-danger" id="pohyb-detail-delete" style="display:none;margin-right:auto;">🗑 Smazat</button>
+      <button class="btn btn-danger" id="pohyb-detail-delete" style="display:none;margin-right:auto;">Smazat</button>
       <button class="btn btn-secondary" onclick="closeModal('modal-pohyb-detail')">Zavřít</button>
     </div>
   </div>
@@ -1229,15 +1229,15 @@
 <div class="modal-overlay" id="modal-delete">
   <div class="modal" style="max-width:400px;">
     <div class="modal-header">
-      <span class="modal-title">🗑 Smazat záznam?</span>
-      <button class="modal-close" onclick="closeModal('modal-delete')">✕</button>
+      <span class="modal-title">Smazat?</span>
+      <button class="modal-close" onclick="cancelDelete()">✕</button>
     </div>
     <div class="modal-body">
       <p style="color:var(--text-primary);" id="delete-text">Opravdu chceš smazat tento záznam? Tato akce je nevratná.</p>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('modal-delete')">Zrušit</button>
-      <button class="btn btn-danger" id="btn-confirm-delete">🗑 Smazat</button>
+      <button class="btn btn-secondary" onclick="cancelDelete()">Zrušit</button>
+      <button class="btn btn-danger" id="btn-confirm-delete" disabled>Smazat (3)</button>
     </div>
   </div>
 </div>
@@ -1385,7 +1385,7 @@
 
   // Dynamically load app.js after Firebase is ready
   const script = document.createElement('script');
-  script.src = 'app.js?v=49';
+  script.src = 'app.js?v=50';
   document.body.appendChild(script);
 </script>
 

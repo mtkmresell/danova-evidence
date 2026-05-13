@@ -604,7 +604,7 @@ function renderDenik() {
       <td>${t.zdanitelny ? '<span class="badge badge-income">Ano</span>' : '<span class="badge badge-neutral">Ne</span>'}</td>
       <td class="td-actions" onclick="event.stopPropagation()">
         <button class="btn btn-ghost btn-icon" onclick="editTransakce('${t.id}')" title="Upravit">✏️</button>
-        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('transakce','${t.id}','záznam')" title="Smazat">🗑</button>
+        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('transakce','${t.id}','záznam',${JSON.stringify(t.popis||'')})" title="Smazat">🗑</button>
       </td>
     </tr>`;
   }).join('');
@@ -674,7 +674,7 @@ function showTransakceDetail(id) {
   };
   document.getElementById('detail-delete-btn').onclick = () => {
     closeModal('modal-transakce-detail');
-    confirmDelete('transakce', id, 'záznam');
+    confirmDelete('transakce', id, 'záznam', t.popis||'');
   };
   openModal('modal-transakce-detail');
 }
@@ -728,7 +728,7 @@ function renderFakturyVydane() {
         <button class="btn btn-ghost btn-icon" onclick="editFakturaVydana('${f.id}')" title="Upravit">✏️</button>
         <button class="btn btn-ghost btn-icon" onclick="exportIsdoc('${f.id}')" title="Stáhnout ISDOC (XML faktura)">📄</button>
         ${f.stav!=='zaplaceno' ? `<button class="btn btn-ghost btn-icon" onclick="markFakturaPaid('vydane','${f.id}')" title="Označit jako zaplaceno">✅</button>` : ''}
-        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('fakturyVydane','${f.id}','fakturu')" title="Smazat">🗑</button>
+        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('fakturyVydane','${f.id}','fakturu',${JSON.stringify(f.cislo||'')})" title="Smazat">🗑</button>
       </td>
     </tr>`;
   }).join('');
@@ -785,7 +785,7 @@ function renderFakturyPrijate() {
       <td class="td-actions">
         <button class="btn btn-ghost btn-icon" onclick="editFakturaPrijata('${f.id}')" title="Upravit">✏️</button>
         ${f.stav!=='zaplaceno' ? `<button class="btn btn-ghost btn-icon" onclick="markFakturaPaid('prijate','${f.id}')" title="Označit jako zaplaceno">✅</button>` : ''}
-        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('fakturyPrijate','${f.id}','fakturu')" title="Smazat">🗑</button>
+        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('fakturyPrijate','${f.id}','fakturu',${JSON.stringify(f.cislo||f.dodavatel||'')})" title="Smazat">🗑</button>
       </td>
     </tr>`;
   }).join('');
@@ -942,60 +942,61 @@ function renderZasoby() {
 function openPohybDetail(idx) {
   const p = _zasobyPohyby[idx];
   if (!p) return;
+
+  // Use live SKLAD data for descriptive fields so edits in SKLAD are reflected immediately
+  const live = p.source === 'sklad' ? (state.skladItems||[]).find(i => i.id === p.skladId) : null;
   const d = p.detail || {};
+
   const typLabel = p.typ === 'prijem'
     ? `<span style="color:var(--success);font-weight:700;">↓ Příjem na sklad</span>`
     : `<span style="color:var(--text-secondary);font-weight:700;">↑ Výdej ze skladu</span>`;
   const sourceLabel = p.source === 'manual'
     ? `<span style="font-size:0.75rem;color:var(--text-muted);">✏️ Manuální záznam</span>`
     : `<span style="font-size:0.75rem;color:var(--text-muted);">🔗 Ze SKLAD.</span>`;
+  const ksLabel = `<span style="font-size:0.75rem;color:var(--text-muted);">${p.ks||1} ks</span>`;
 
   const row = (label, val) => val ? `<tr><td style="color:var(--text-muted);font-size:0.82rem;padding:6px 0;width:45%;vertical-align:top;">${label}</td><td style="padding:6px 0;font-size:0.82rem;">${val}</td></tr>` : '';
   let rows = '';
 
   if (p.source === 'sklad' && d.typ === 'prijem') {
-    rows += row('Datum přijetí',   fmtDate(p.datum));
-    rows += row('Datum nákupu',    fmtDate(d.buyDate));
-    rows += row('Kde koupeno',     esc(d.buyWhere));
-    rows += row('Doklad nákupu',   esc(d.orderNum));
-    rows += row('Počet kusů',      p.ks||1);
-    rows += row('Nák. cena (CZK)', fmtCzk(p.cena));
+    rows += row('Datum přijetí',  fmtDate(p.datum));
+    rows += row('Datum nákupu',   fmtDate(live?.buyDate ?? d.buyDate));
+    rows += row('Nák. cena',      fmtCzk(p.cena));
     if (d.cenaOrigEur != null) rows += row('Nák. cena (EUR)', `${d.cenaOrigEur} €${d.eurRate ? ` × kurz ${d.eurRate}` : ' · kurz nedostupný'}`);
-    rows += row('Kategorie',       esc(d.kategorie));
-    rows += row('Velikost',        esc(d.velikost));
-    rows += row('Stav',            esc(d.stav));
-    rows += row('Lokace v SKLAD.', esc(d.location));
-    if (d.invoiceUrl) rows += row('Faktura', `<a href="${esc(d.invoiceUrl)}" target="_blank" style="color:var(--accent);">Otevřít</a>`);
-    rows += row('Poznámka',        esc(d.note));
+    rows += row('Kde koupeno',    esc(live?.buyWhere ?? d.buyWhere));
+    rows += row('Č. objednávky',  esc(live?.orderNum ?? d.orderNum));
+    rows += row('Kategorie',      esc(live?.category ?? d.kategorie));
+    rows += row('Stav',           esc(live?.condition ?? d.stav));
+    rows += row('Sklad',          esc(live?.location ?? d.location));
+    if ((live?.invoiceUrl ?? d.invoiceUrl)) rows += row('Faktura', `<a href="${esc(live?.invoiceUrl ?? d.invoiceUrl)}" target="_blank" style="color:var(--accent);">Otevřít</a>`);
+    rows += row('Poznámka',       esc(live?.note ?? d.note));
   } else if (p.source === 'sklad' && d.typ === 'vydej') {
-    rows += row('Datum výdeje',    fmtDate(p.datum));
-    rows += row('Datum prodeje',   fmtDate(d.saleDate));
-    rows += row('Kde prodáno',     esc(d.soldWhere));
-    rows += row('Doklad prodeje',  esc(d.saleRef));
-    rows += row('Počet kusů',      p.ks||1);
-    rows += row('Prodejní cena',   d.sellPrice ? fmtCzk(d.sellPrice) + (d.sellCurrency !== 'CZK' ? ' ' + d.sellCurrency : '') : null);
-    rows += row('Nák. cena (CZK)', fmtCzk(p.cena));
+    rows += row('Datum výdeje',   fmtDate(p.datum));
+    rows += row('Datum prodeje',  fmtDate(live?.saleDate ?? d.saleDate));
+    rows += row('Kde prodáno',    esc(live?.soldWhere ?? d.soldWhere));
+    rows += row('Doklad prodeje', esc(live?.saleRef ?? d.saleRef));
+    rows += row('Prodejní cena',  d.sellPrice ? fmtCzk(d.sellPrice) + (d.sellCurrency !== 'CZK' ? ' ' + d.sellCurrency : '') : null);
+    rows += row('Nák. cena',      fmtCzk(p.cena));
     if (d.cenaOrigEur != null) rows += row('Nák. cena (EUR)', `${d.cenaOrigEur} € × kurz ${d.eurRate||'?'}`);
-    rows += row('Zisk',            d.profit != null ? fmtCzk(d.profit) : null);
+    rows += row('Zisk',           d.profit != null ? fmtCzk(d.profit) : null);
   } else {
-    rows += row('Datum',                   fmtDate(p.datum));
-    rows += row('Počet kusů',              d.ks||1);
-    rows += row('Nák. cena',              fmtCzk(p.cena));
-    rows += row('Doklad nákupu/prodeje',   esc(d.dokladRef));
-    rows += row('Poznámka',               esc(d.poznamka));
+    rows += row('Datum',                  fmtDate(p.datum));
+    rows += row('Nák. cena',             fmtCzk(p.cena));
+    rows += row('Doklad nákupu/prodeje',  esc(d.dokladRef));
+    rows += row('Poznámka',              esc(d.poznamka));
   }
 
   if (p.cisloDokladu) rows = row('Č. dokladu', `<span style="font-family:monospace;font-weight:700;">${esc(p.cisloDokladu)}</span>`) + rows;
   document.getElementById('pohyb-detail-title').textContent = p.nazev;
-  document.getElementById('pohyb-detail-meta').innerHTML = `${typLabel} &nbsp;·&nbsp; ${sourceLabel}`;
+  document.getElementById('pohyb-detail-meta').innerHTML = `${typLabel} &nbsp;·&nbsp; ${sourceLabel} &nbsp;·&nbsp; ${ksLabel}`;
   document.getElementById('pohyb-detail-rows').innerHTML = rows || '<tr><td colspan="2" style="color:var(--text-muted);font-size:0.82rem;">Bez dalších detailů</td></tr>';
   const delBtn = document.getElementById('pohyb-detail-delete');
   if (delBtn) {
     delBtn.style.display = '';
     if (p.source === 'manual') {
-      delBtn.onclick = () => { confirmDelete('zasoby', p.manualId, 'pohyb'); closeModal('modal-pohyb-detail'); };
+      delBtn.onclick = () => { closeModal('modal-pohyb-detail'); confirmDelete('zasoby', p.manualId, 'pohyb', p.nazev); };
     } else {
-      delBtn.onclick = () => hideSkladPohyb(p.skladId, p.skladTyp);
+      delBtn.onclick = () => { closeModal('modal-pohyb-detail'); confirmDelete(null, null, 'pohyb ze zásoby', p.nazev, () => hideSkladPohyb(p.skladId, p.skladTyp)); };
     }
   }
   openModal('modal-pohyb-detail');
@@ -1104,7 +1105,7 @@ function renderMajetek() {
       <td>${vyrazen ? `<span class="badge badge-neutral">Vyřazen ${fmtDate(m.datumVyrazeni)}</span>` : '<span class="badge badge-income">Aktivní</span>'}</td>
       <td class="td-actions">
         <button class="btn btn-ghost btn-icon" onclick="editMajetek('${m.id}')" title="Upravit">✏️</button>
-        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('majetek','${m.id}','majetek')" title="Smazat">🗑</button>
+        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('majetek','${m.id}','majetek',${JSON.stringify(m.nazev||'')})" title="Smazat">🗑</button>
       </td>
     </tr>`;
   }).join('');
@@ -1718,22 +1719,50 @@ window.markFakturaPaid = markFakturaPaid;
 // ── DELETE ────────────────────────────────────────────────────
 let pendingDelete = null;
 
-function confirmDelete(colName, id, label) {
-  pendingDelete = { colName, id };
-  document.getElementById('delete-text').textContent = `Opravdu chceš smazat tento ${label}? Tato akce je nevratná.`;
-  document.getElementById('btn-confirm-delete').onclick = () => executeDelete();
+let _deleteTimerInterval = null;
+
+function confirmDelete(colName, id, label, name, onConfirm) {
+  pendingDelete = { colName, id, onConfirm };
+  const nameStr = name ? ` „${esc(name)}"` : '';
+  document.getElementById('delete-text').innerHTML = `Opravdu chceš smazat ${label}${nameStr}? Tato akce je nevratná.`;
+  const btn = document.getElementById('btn-confirm-delete');
+  btn.onclick = () => executeDelete();
+  btn.disabled = true;
+  btn.textContent = 'Smazat (3)';
+  if (_deleteTimerInterval) clearInterval(_deleteTimerInterval);
+  let count = 3;
+  _deleteTimerInterval = setInterval(() => {
+    count--;
+    if (count <= 0) {
+      clearInterval(_deleteTimerInterval);
+      _deleteTimerInterval = null;
+      btn.disabled = false;
+      btn.textContent = 'Smazat';
+    } else {
+      btn.textContent = `Smazat (${count})`;
+    }
+  }, 1000);
   openModal('modal-delete');
 }
 window.confirmDelete = confirmDelete;
 
+function cancelDelete() {
+  if (_deleteTimerInterval) { clearInterval(_deleteTimerInterval); _deleteTimerInterval = null; }
+  pendingDelete = null;
+  closeModal('modal-delete');
+}
+window.cancelDelete = cancelDelete;
+
 async function executeDelete() {
   if (!pendingDelete) return;
-  const { colName, id } = pendingDelete;
+  const { colName, id, onConfirm } = pendingDelete;
   pendingDelete = null;
+  if (_deleteTimerInterval) { clearInterval(_deleteTimerInterval); _deleteTimerInterval = null; }
+  closeModal('modal-delete');
+  if (onConfirm) { onConfirm(); return; }
   try {
     const { deleteDoc } = window._firebase;
     await deleteDoc(docRef(colName, id));
-    closeModal('modal-delete');
     showToast('Smazáno','success');
   } catch(e) { showToast('Chyba smazání: '+e.message,'error'); }
 }
