@@ -419,6 +419,32 @@ function _buildEurRateMap() {
   return map;
 }
 
+function _buildSkladDokladMap() {
+  const map = {};
+  state.transakce.forEach(t => {
+    if (t.doklad && t.skladIds && Array.isArray(t.skladIds)) {
+      t.skladIds.forEach(id => { map[id] = t.doklad; });
+    }
+  });
+  return map;
+}
+
+async function _getNextIdNumber(year) {
+  const pattern = new RegExp('^ID' + year + '\\d{5}$');
+  let maxNum = 0;
+  state.transakce.forEach(t => {
+    if (t.doklad && pattern.test(t.doklad)) {
+      const n = parseInt(t.doklad.slice(-5));
+      if (n > maxNum) maxNum = n;
+    }
+  });
+  const storedMax = (state.nastaveni.idCounters || {})[String(year)] || 0;
+  const nextNum = Math.max(maxNum, storedMax) + 1;
+  const { updateDoc } = window._firebase;
+  await updateDoc(docRef('nastaveni', 'config'), { [`idCounters.${year}`]: nextNum });
+  return 'ID' + year + String(nextNum).padStart(5, '0');
+}
+
 // ── FORMATOVANI ───────────────────────────────────────────────
 function fmtCzk(amount) {
   if (isNaN(amount)) return '0 Kč';
@@ -832,10 +858,13 @@ function renderZasoby() {
   // Auto ze SKLAD.
   const hidden = state.nastaveni.zasobyHiddenIds || [];
   const eurMap = _buildEurRateMap();
+  const dokladMap = _buildSkladDokladMap();
   items.filter(i => i.homeDate).forEach(i => {
     const rawPrice = Number(i.buyPrice||0);
     const isEur = (i.buyCurrency||'CZK').toUpperCase() === 'EUR';
-    const eurRate = isEur && i.orderNum ? eurMap[i.orderNum] : null;
+    const dokladCislo = dokladMap[i.id] || i.orderNum || '';
+    const eurRate = isEur && dokladCislo ? eurMap[dokladCislo] : null;
+    const cenaEurBezKurzu = isEur && !eurRate;
     const cenaCzk = isEur ? (eurRate ? Math.round(rawPrice * eurRate * 100) / 100 : rawPrice) : rawPrice;
     const cenaOrigEur = isEur ? rawPrice : null;
 
@@ -844,7 +873,7 @@ function renderZasoby() {
         datum: i.homeDate, nazev: i.name||'—', typ: 'prijem',
         cena: cenaCzk, mena: 'CZK', source: 'sklad',
         skladId: i.id, skladTyp: 'prijem', ks: i.qty||1,
-        dokladRef: i.orderNum||'', cenaOrigEur,
+        dokladRef: dokladCislo, cenaOrigEur, cenaEurBezKurzu,
         detail: { typ: 'prijem', kategorie: i.category, velikost: i.size, stav: i.condition,
                   buyDate: i.buyDate, buyWhere: i.buyWhere, orderNum: i.orderNum,
                   location: i.location, invoiceUrl: i.invoiceUrl, note: i.note,
@@ -856,7 +885,7 @@ function renderZasoby() {
         datum: i.payoutDate||i.saleDate||i.homeDate, nazev: i.name||'—', typ: 'vydej',
         cena: cenaCzk, mena: 'CZK', source: 'sklad',
         skladId: i.id, skladTyp: 'vydej', ks: i.qty||1,
-        dokladRef: i.saleRef||'', cenaOrigEur,
+        dokladRef: i.saleRef||dokladCislo, cenaOrigEur, cenaEurBezKurzu,
         detail: { typ: 'vydej', saleDate: i.saleDate, payoutDate: i.payoutDate,
                   soldWhere: i.soldWhere, sellPrice: i.sellPrice, sellCurrency: i.sellCurrency||'CZK',
                   profit: i.profit, buyPrice: i.buyPrice, buyCurrency: i.buyCurrency||'CZK',
@@ -910,7 +939,7 @@ function renderZasoby() {
       ? `<span style="color:var(--success);font-weight:600;">↓ Příjem</span>`
       : `<span style="color:var(--text-secondary);">↑ Výdej</span>`}</td>
     <td style="text-align:right;">${p.ks||1}</td>
-    <td class="${p.typ === 'prijem' ? 'td-amount-income' : 'td-amount-expense'}" style="text-align:right;">${fmtCzk(p.cena)}${p.cenaOrigEur != null ? `<span style="font-size:0.72rem;color:var(--text-muted);display:block;">(${p.cenaOrigEur} €)</span>` : ''}</td>
+    <td class="${p.typ === 'prijem' ? 'td-amount-income' : 'td-amount-expense'}" style="text-align:right;">${p.cenaEurBezKurzu ? `<span style="color:var(--danger);font-weight:700;">⚠️ ${p.cenaOrigEur} €</span>` : fmtCzk(p.cena) + (p.cenaOrigEur != null ? `<span style="font-size:0.72rem;color:var(--text-muted);display:block;">(${p.cenaOrigEur} €)</span>` : '')}</td>
     <td style="font-size:0.78rem;color:var(--text-muted);">${esc(p.dokladRef)||'—'}</td>
   </tr>`).join('');
 }
@@ -2691,12 +2720,23 @@ async function _syncSkladBuyGroup(items) {
   }).join(' | ');
 
   const { addDoc } = window._firebase;
+
+  // Determine doklad number: FP if set, otherwise generate ID number
+  let dokladCislo = '';
+  if (first.dokladTyp === 'fp' && first.fpCislo) {
+    dokladCislo = first.fpCislo;
+  } else {
+    const year = datum.slice(0, 4);
+    dokladCislo = await _getNextIdNumber(year);
+  }
+
   const record = {
     typ: 'vydej', datum, popis,
-    doklad: first.orderNum || '',
+    doklad: dokladCislo,
+    skladIds: items.map(i => i.id),
     castka: Math.round(castka * 100) / 100,
     kategorie: 'nakup_zbozi', ucet: 'bank', zdanitelny: true,
-    poznamka: `Importováno ze SKLAD.${kurzInfo && !rateOk ? ` ⚠️ DOPLŇ RUČNĚ částku v CZK (${kurzInfo.castkaCizi} EUR, kurz ČNB nedostupný)` : isPending ? ` ⏳ Kurz z ${fmtDate(kurzInfo.kurzDatum)}, dnešní kurz ČNB ještě nebyl vyhlášen` : ''} · ${breakdown} · IDs: ${items.map(i=>i.id).join(', ')}`,
+    poznamka: `Importováno ze SKLAD.${kurzInfo && !rateOk ? ` ⚠️ DOPLŇ RUČNĚ částku v CZK (${kurzInfo.castkaCizi} EUR, kurz ČNB nedostupný)` : isPending ? ` ⏳ Kurz z ${fmtDate(kurzInfo.kurzDatum)}, dnešní kurz ČNB ještě nebyl vyhlášen` : ''} · ${breakdown}`,
   };
   if (rateOk) Object.assign(record, kurzInfo);
   await addDoc(col('transakce'), record);
