@@ -2751,8 +2751,11 @@ async function _syncSkladSaleGroup(items) {
 
   const eurItems = items.filter(i => (i.sellCurrency||'CZK').toUpperCase() === 'EUR');
   const czkItems = items.filter(i => (i.sellCurrency||'CZK').toUpperCase() !== 'EUR');
-  const castkaCziEur = eurItems.reduce((s,i) => s + Number(i.sellPrice||0), 0);
-  const castkaCzk    = czkItems.reduce((s,i) => s + Number(i.sellPrice||0), 0);
+  // EUR items: SKLAD stores sellPrice in CZK (converted on save), original EUR is in sellPriceOrig
+  const castkaCziEur = eurItems.reduce((s,i) => s + Number(i.sellPriceOrig || 0), 0);
+  // EUR items without sellPriceOrig: add their CZK sellPrice directly
+  const czkFromOrphanEur = eurItems.filter(i => !i.sellPriceOrig).reduce((s,i) => s + Number(i.sellPrice||0), 0);
+  const castkaCzk    = czkItems.reduce((s,i) => s + Number(i.sellPrice||0), 0) + czkFromOrphanEur;
 
   let kurzInfo = null;
   let castka   = castkaCzk;
@@ -2782,10 +2785,12 @@ async function _syncSkladSaleGroup(items) {
 
   const breakdown = items.map(i => {
     const cur = (i.sellCurrency||'CZK').toUpperCase();
-    const p   = Number(i.sellPrice||0);
-    if (cur === 'EUR' && rateOk)
+    if (cur === 'EUR' && i.sellPriceOrig && rateOk) {
+      const p = Number(i.sellPriceOrig);
       return `${i.name||'?'}: ${p} EUR × ${kurzInfo.kurzCnb} = ${(Math.round(p * kurzInfo.kurzCnb * 100) / 100).toFixed(2)} Kč`;
-    return `${i.name||'?'}: ${p} ${cur}`;
+    }
+    const p = Number(i.sellPrice||0);
+    return `${i.name||'?'}: ${p} ${cur === 'EUR' ? 'CZK (EUR bez orig.)' : cur}`;
   }).join(' | ');
 
   const { addDoc } = window._firebase;
