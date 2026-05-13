@@ -2628,7 +2628,7 @@ async function _autoUpdatePendingKurzy() {
     if (!cnb || cnb.source !== datum) continue; // kurz ještě není vyhlášen
     for (const t of records) {
       const newCastka = Math.round(((t.castkaCzkBase || 0) + t.castkaCizi * cnb.rate) * 100) / 100;
-      await updateDoc(doc(window._firebase.db, 'transakce', t.id), {
+      await updateDoc(docRef('transakce', t.id), {
         castka: newCastka,
         kurzCnb: cnb.rate, kurzDatum: cnb.source,
         kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString(),
@@ -2640,8 +2640,8 @@ async function _autoUpdatePendingKurzy() {
 }
 
 async function aktualizujKurz(transakceId) {
-  const { getDoc, updateDoc, doc } = window._firebase;
-  const snap = await getDoc(doc(window._firebase.db, 'transakce', transakceId));
+  const { updateDoc } = window._firebase;
+  const snap = await (async () => { const { getDoc } = window._firebase; return getDoc(docRef('transakce', transakceId)); })();
   if (!snap.exists()) return;
   const t = snap.data();
   if (!t.menaCizi || !t.datum) return;
@@ -2654,7 +2654,7 @@ async function aktualizujKurz(transakceId) {
   }
 
   const newCastka = Math.round(((t.castkaCzkBase || 0) + t.castkaCizi * cnb.rate) * 100) / 100;
-  await updateDoc(doc(window._firebase.db, 'transakce', transakceId), {
+  await updateDoc(docRef('transakce', transakceId), {
     castka: newCastka,
     kurzCnb: cnb.rate, kurzDatum: cnb.source,
     kurzUrl: cnb.kurzUrl, kurzStazeno: new Date().toISOString(),
