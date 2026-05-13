@@ -907,14 +907,17 @@ function renderZasoby() {
   updateSortBtn('zasoby');
   _zasobyPohyby = pohyby;
 
-  const naSkladeItems = items.filter(i => i.homeDate && i.saleState !== 'paid');
-  const hodnota = getZasobyHodnota();
-  const manualPrijmy = (state.zasoby||[]).filter(z=>z.typ==='prijem').length;
-  const manualVydeje = (state.zasoby||[]).filter(z=>z.typ==='vydej').length;
-  setText('zasoby-pocet',   naSkladeItems.length);
-  setText('zasoby-hodnota', fmtCzk(hodnota));
-  setText('zasoby-prijmu',  items.filter(i => i.homeDate).length + manualPrijmy);
-  setText('zasoby-vydeju',  items.filter(i => i.homeDate && i.saleState === 'paid').length + manualVydeje);
+  // Stats derived from pohyby so hidden records don't count
+  const prijmy = pohyby.filter(p => p.typ === 'prijem');
+  const vydeje = pohyby.filter(p => p.typ === 'vydej');
+  const soldSkladIds = new Set(vydeje.filter(p => p.source === 'sklad').map(p => p.skladId));
+  const naSkladePrijmy = prijmy.filter(p => p.source === 'sklad' && !soldSkladIds.has(p.skladId));
+  const hodnotaSkladu = naSkladePrijmy.reduce((s, p) => s + (p.cenaEurBezKurzu ? 0 : p.cena), 0);
+
+  setText('zasoby-pocet',   naSkladePrijmy.length + prijmy.filter(p => p.source === 'manual').length);
+  setText('zasoby-hodnota', fmtCzk(hodnotaSkladu));
+  setText('zasoby-prijmu',  prijmy.length);
+  setText('zasoby-vydeju',  vydeje.length);
 
   const tbody = document.getElementById('zasoby-tbody');
   if (!pohyby.length) {
