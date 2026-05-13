@@ -402,9 +402,21 @@ function getOdpisyRok(rok) {
 }
 
 function getZasobyHodnota() {
+  const eurMap = _buildEurRateMap();
   return (state.skladItems || [])
-    .filter(i => i.homeDate && i.saleState !== 'paid' && (i.buyCurrency||'CZK') === 'CZK')
-    .reduce((s, i) => s + Number(i.buyPrice||0), 0);
+    .filter(i => i.homeDate && i.saleState !== 'paid')
+    .reduce((s, i) => {
+      const price = Number(i.buyPrice||0);
+      if ((i.buyCurrency||'CZK').toUpperCase() === 'CZK') return s + price;
+      const rate = i.orderNum ? eurMap[i.orderNum] : null;
+      return s + (rate ? Math.round(price * rate * 100) / 100 : price);
+    }, 0);
+}
+
+function _buildEurRateMap() {
+  const map = {};
+  state.transakce.forEach(t => { if (t.doklad && t.kurzCnb) map[t.doklad] = t.kurzCnb; });
+  return map;
 }
 
 // ── FORMATOVANI ───────────────────────────────────────────────
@@ -819,26 +831,36 @@ function renderZasoby() {
 
   // Auto ze SKLAD.
   const hidden = state.nastaveni.zasobyHiddenIds || [];
+  const eurMap = _buildEurRateMap();
   items.filter(i => i.homeDate).forEach(i => {
+    const rawPrice = Number(i.buyPrice||0);
+    const isEur = (i.buyCurrency||'CZK').toUpperCase() === 'EUR';
+    const eurRate = isEur && i.orderNum ? eurMap[i.orderNum] : null;
+    const cenaCzk = isEur ? (eurRate ? Math.round(rawPrice * eurRate * 100) / 100 : rawPrice) : rawPrice;
+    const cenaOrigEur = isEur ? rawPrice : null;
+
     if (!hidden.includes(i.id + '__prijem')) {
       pohyby.push({
         datum: i.homeDate, nazev: i.name||'—', typ: 'prijem',
-        cena: Number(i.buyPrice||0), mena: i.buyCurrency||'CZK', source: 'sklad',
-        skladId: i.id, skladTyp: 'prijem', ks: i.qty||1, saleRef: '',
+        cena: cenaCzk, mena: 'CZK', source: 'sklad',
+        skladId: i.id, skladTyp: 'prijem', ks: i.qty||1,
+        dokladRef: i.orderNum||'', cenaOrigEur,
         detail: { typ: 'prijem', kategorie: i.category, velikost: i.size, stav: i.condition,
                   buyDate: i.buyDate, buyWhere: i.buyWhere, orderNum: i.orderNum,
-                  location: i.location, invoiceUrl: i.invoiceUrl, note: i.note }
+                  location: i.location, invoiceUrl: i.invoiceUrl, note: i.note,
+                  cenaOrigEur, eurRate }
       });
     }
     if (i.saleState === 'paid' && !hidden.includes(i.id + '__vydej')) {
       pohyby.push({
         datum: i.payoutDate||i.saleDate||i.homeDate, nazev: i.name||'—', typ: 'vydej',
-        cena: Number(i.buyPrice||0), mena: i.buyCurrency||'CZK', source: 'sklad',
-        skladId: i.id, skladTyp: 'vydej', ks: i.qty||1, saleRef: i.saleRef||'',
+        cena: cenaCzk, mena: 'CZK', source: 'sklad',
+        skladId: i.id, skladTyp: 'vydej', ks: i.qty||1,
+        dokladRef: i.saleRef||'', cenaOrigEur,
         detail: { typ: 'vydej', saleDate: i.saleDate, payoutDate: i.payoutDate,
                   soldWhere: i.soldWhere, sellPrice: i.sellPrice, sellCurrency: i.sellCurrency||'CZK',
                   profit: i.profit, buyPrice: i.buyPrice, buyCurrency: i.buyCurrency||'CZK',
-                  saleRef: i.saleRef||'' }
+                  saleRef: i.saleRef||'', cenaOrigEur, eurRate }
       });
     }
   });
@@ -848,8 +870,8 @@ function renderZasoby() {
     pohyby.push({
       datum: z.datum, nazev: z.nazev||'—', typ: z.typ||'prijem',
       cena: Number(z.cena||0), mena: z.mena||'CZK', source: 'manual', manualId: z.id,
-      ks: z.ks||1, saleRef: z.saleRef||'',
-      detail: { typ: z.typ, poznamka: z.poznamka||'', ks: z.ks||1, saleRef: z.saleRef||'' }
+      ks: z.ks||1, dokladRef: z.dokladRef||z.saleRef||'', cenaOrigEur: null,
+      detail: { typ: z.typ, poznamka: z.poznamka||'', ks: z.ks||1, dokladRef: z.dokladRef||z.saleRef||'' }
     });
   });
 
@@ -888,8 +910,8 @@ function renderZasoby() {
       ? `<span style="color:var(--success);font-weight:600;">↓ Příjem</span>`
       : `<span style="color:var(--text-secondary);">↑ Výdej</span>`}</td>
     <td style="text-align:right;">${p.ks||1}</td>
-    <td class="${p.typ === 'prijem' ? 'td-amount-income' : 'td-amount-expense'}" style="text-align:right;">${fmtCzk(p.cena)}${p.mena !== 'CZK' ? ' '+p.mena : ''}</td>
-    <td style="font-size:0.78rem;color:var(--text-muted);">${p.typ === 'vydej' ? (esc(p.saleRef)||'—') : ''}</td>
+    <td class="${p.typ === 'prijem' ? 'td-amount-income' : 'td-amount-expense'}" style="text-align:right;">${fmtCzk(p.cena)}${p.cenaOrigEur != null ? `<span style="font-size:0.72rem;color:var(--text-muted);display:block;">(${p.cenaOrigEur} €)</span>` : ''}</td>
+    <td style="font-size:0.78rem;color:var(--text-muted);">${esc(p.dokladRef)||'—'}</td>
   </tr>`).join('');
 }
 
@@ -908,33 +930,35 @@ function openPohybDetail(idx) {
   let rows = '';
 
   if (p.source === 'sklad' && d.typ === 'prijem') {
-    rows += row('Datum přijetí', fmtDate(p.datum));
-    rows += row('Datum nákupu',  fmtDate(d.buyDate));
-    rows += row('Kde koupeno',   esc(d.buyWhere));
-    rows += row('Číslo obj.',    esc(d.orderNum));
-    rows += row('Počet kusů',    p.ks||1);
-    rows += row('Nák. cena',     fmtCzk(p.cena) + (p.mena !== 'CZK' ? ' ' + p.mena : ''));
-    rows += row('Kategorie',     esc(d.kategorie));
-    rows += row('Velikost',      esc(d.velikost));
-    rows += row('Stav',          esc(d.stav));
+    rows += row('Datum přijetí',   fmtDate(p.datum));
+    rows += row('Datum nákupu',    fmtDate(d.buyDate));
+    rows += row('Kde koupeno',     esc(d.buyWhere));
+    rows += row('Doklad nákupu',   esc(d.orderNum));
+    rows += row('Počet kusů',      p.ks||1);
+    rows += row('Nák. cena (CZK)', fmtCzk(p.cena));
+    if (d.cenaOrigEur != null) rows += row('Nák. cena (EUR)', `${d.cenaOrigEur} €${d.eurRate ? ` × kurz ${d.eurRate}` : ' · kurz nedostupný'}`);
+    rows += row('Kategorie',       esc(d.kategorie));
+    rows += row('Velikost',        esc(d.velikost));
+    rows += row('Stav',            esc(d.stav));
     rows += row('Lokace v SKLAD.', esc(d.location));
     if (d.invoiceUrl) rows += row('Faktura', `<a href="${esc(d.invoiceUrl)}" target="_blank" style="color:var(--accent);">Otevřít</a>`);
-    rows += row('Poznámka',      esc(d.note));
+    rows += row('Poznámka',        esc(d.note));
   } else if (p.source === 'sklad' && d.typ === 'vydej') {
-    rows += row('Datum výdeje',  fmtDate(p.datum));
-    rows += row('Datum prodeje', fmtDate(d.saleDate));
-    rows += row('Kde prodáno',   esc(d.soldWhere));
-    rows += row('Počet kusů',    p.ks||1);
-    rows += row('Prodejní cena', d.sellPrice ? fmtCzk(d.sellPrice) + (d.sellCurrency !== 'CZK' ? ' ' + d.sellCurrency : '') : null);
-    rows += row('Nák. cena',     fmtCzk(p.cena) + (p.mena !== 'CZK' ? ' ' + p.mena : ''));
-    rows += row('Zisk',          d.profit != null ? fmtCzk(d.profit) : null);
-    rows += row('Č. prodej. dokladu', esc(d.saleRef));
+    rows += row('Datum výdeje',    fmtDate(p.datum));
+    rows += row('Datum prodeje',   fmtDate(d.saleDate));
+    rows += row('Kde prodáno',     esc(d.soldWhere));
+    rows += row('Doklad prodeje',  esc(d.saleRef));
+    rows += row('Počet kusů',      p.ks||1);
+    rows += row('Prodejní cena',   d.sellPrice ? fmtCzk(d.sellPrice) + (d.sellCurrency !== 'CZK' ? ' ' + d.sellCurrency : '') : null);
+    rows += row('Nák. cena (CZK)', fmtCzk(p.cena));
+    if (d.cenaOrigEur != null) rows += row('Nák. cena (EUR)', `${d.cenaOrigEur} € × kurz ${d.eurRate||'?'}`);
+    rows += row('Zisk',            d.profit != null ? fmtCzk(d.profit) : null);
   } else {
-    rows += row('Datum',    fmtDate(p.datum));
-    rows += row('Počet kusů', d.ks||1);
-    rows += row('Cena',     fmtCzk(p.cena) + (p.mena !== 'CZK' ? ' ' + p.mena : ''));
-    rows += row('Č. prodej. dokladu', esc(d.saleRef));
-    rows += row('Poznámka', esc(d.poznamka));
+    rows += row('Datum',                   fmtDate(p.datum));
+    rows += row('Počet kusů',              d.ks||1);
+    rows += row('Nák. cena',              fmtCzk(p.cena));
+    rows += row('Doklad nákupu/prodeje',   esc(d.dokladRef));
+    rows += row('Poznámka',               esc(d.poznamka));
   }
 
   if (p.cisloDokladu) rows = row('Č. dokladu', `<span style="font-family:monospace;font-weight:700;">${esc(p.cisloDokladu)}</span>`) + rows;
@@ -991,15 +1015,15 @@ async function saveManualPohyb() {
   const typ     = document.getElementById('mp-typ')?.value;
   const cena    = parseFloat(document.getElementById('mp-cena')?.value);
   const mena    = document.getElementById('mp-mena')?.value || 'CZK';
-  const ks      = parseInt(document.getElementById('mp-ks')?.value)||1;
-  const saleRef = document.getElementById('mp-saleref')?.value.trim()||'';
-  const pozn    = document.getElementById('mp-poznamka')?.value.trim();
+  const ks       = parseInt(document.getElementById('mp-ks')?.value)||1;
+  const dokladRef = document.getElementById('mp-saleref')?.value.trim()||'';
+  const pozn     = document.getElementById('mp-poznamka')?.value.trim();
   if (!datum || !nazev || isNaN(cena) || cena < 0) {
     showToast('Vyplň datum, název a cenu', 'error'); return;
   }
   try {
     const id = document.getElementById('mp-id')?.value;
-    const data = { datum, nazev, typ, cena, mena, ks, saleRef, poznamka: pozn };
+    const data = { datum, nazev, typ, cena, mena, ks, dokladRef, poznamka: pozn };
     if (id) {
       const { updateDoc } = window._firebase;
       await updateDoc(docRef('zasoby', id), data);
