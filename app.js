@@ -440,6 +440,9 @@ async function _getNextIdNumber(year) {
   });
   const storedMax = (state.nastaveni.idCounters || {})[String(year)] || 0;
   const nextNum = Math.max(maxNum, storedMax) + 1;
+  // Update in-memory immediately so next call within same sync gets correct next number
+  if (!state.nastaveni.idCounters) state.nastaveni.idCounters = {};
+  state.nastaveni.idCounters[String(year)] = nextNum;
   const { updateDoc } = window._firebase;
   await updateDoc(docRef('nastaveni', 'config'), { [`idCounters.${year}`]: nextNum });
   return 'ID' + year + String(nextNum).padStart(5, '0');
