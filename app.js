@@ -2194,20 +2194,89 @@ function fillAccountSelects() {
 }
 
 function renderUctyList() {
-  const list = document.getElementById('ucty-list');
+  const list = document.getElementById('modal-ucty-list');
   if (!list) return;
   const ucty = getUcty();
   const isDefault = !state.nastaveni.ucty?.length;
-  list.innerHTML = ucty.map((u, i) => `
-    <div style="display:flex;align-items:center;gap:0.75rem;padding:0.6rem 0.75rem;background:var(--bg-tertiary);border-radius:var(--radius);border:1px solid var(--border-subtle);">
-      <span style="font-size:1.25rem;line-height:1;">${u.icon}</span>
-      <span style="flex:1;font-size:0.9rem;">${esc(u.label)}</span>
-      ${!isDefault ? `<button class="btn btn-ghost btn-icon btn-sm" onclick="deleteUcet(${i})" title="Smazat účet" style="color:var(--danger);">🗑</button>` : ''}
-    </div>`).join('');
   if (isDefault) {
-    list.insertAdjacentHTML('afterbegin', `<p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.5rem;">Výchozí účty. Přidej vlastní, nebo je ponech.</p>`);
+    list.innerHTML = `<p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.75rem;">Výchozí účty — přidej vlastní nebo je ponech.</p>` +
+      ucty.map(u => `
+        <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0.75rem;background:var(--bg-secondary);border-radius:var(--radius);border:1px solid var(--border-subtle);opacity:0.7;">
+          <span style="font-size:1.2rem;">${u.icon}</span>
+          <span style="flex:1;font-size:0.88rem;">${esc(u.label)}</span>
+        </div>`).join('');
+  } else {
+    list.innerHTML = ucty.map((u, i) => `
+      <div id="ucet-row-${i}" style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.75rem;background:var(--bg-tertiary);border-radius:var(--radius);border:1px solid var(--border-subtle);">
+        <span style="font-size:1.2rem;">${u.icon}</span>
+        <span style="flex:1;font-size:0.88rem;">${esc(u.label)}</span>
+        <button class="btn btn-ghost btn-icon btn-sm" onclick="editUcetRow(${i})" title="Upravit">✏️</button>
+        <button class="btn btn-ghost btn-icon btn-sm" onclick="deleteUcet(${i})" title="Smazat" style="color:var(--danger);">🗑</button>
+      </div>`).join('');
   }
 }
+
+function openKategorieModal() {
+  openModal('modal-kategorie');
+  renderKategorieList('prijem');
+  renderKategorieList('vydej');
+}
+window.openKategorieModal = openKategorieModal;
+
+function openUctyModal() {
+  openModal('modal-ucty');
+  renderUctyList();
+}
+window.openUctyModal = openUctyModal;
+
+function editKategorieRow(typ, index) {
+  const key = typ === 'prijem' ? 'custom_prijmy' : 'custom_vydaje';
+  const cat = (state.nastaveni[key] || [])[index];
+  if (!cat) return;
+  const row = document.getElementById(`kat-row-${typ}-${index}`);
+  if (!row) return;
+  row.innerHTML = `
+    <input type="text" value="${esc(cat.label)}" id="kat-edit-${typ}-${index}" class="form-control" style="flex:1;font-size:0.82rem;padding:0.25rem 0.5rem;" />
+    <button class="btn btn-primary btn-sm" onclick="saveKategorieRow('${typ}',${index})">✓</button>
+    <button class="btn btn-ghost btn-sm" onclick="renderKategorieList('${typ}')">✕</button>`;
+  document.getElementById(`kat-edit-${typ}-${index}`)?.select();
+}
+window.editKategorieRow = editKategorieRow;
+
+async function saveKategorieRow(typ, index) {
+  const key = typ === 'prijem' ? 'custom_prijmy' : 'custom_vydaje';
+  const cats = [...(state.nastaveni[key] || [])];
+  const newLabel = document.getElementById(`kat-edit-${typ}-${index}`)?.value.trim();
+  if (!newLabel) { showToast('Zadej název', 'error'); return; }
+  cats[index] = { ...cats[index], label: newLabel };
+  await _saveKategorie(typ, cats);
+}
+window.saveKategorieRow = saveKategorieRow;
+
+function editUcetRow(index) {
+  const ucty = getUcty();
+  const u = ucty[index];
+  if (!u) return;
+  const row = document.getElementById(`ucet-row-${index}`);
+  if (!row) return;
+  row.innerHTML = `
+    <input type="text" value="${esc(u.icon)}" id="ucet-edit-icon-${index}" class="form-control" style="width:52px;text-align:center;font-size:1.1rem;padding:0.25rem;" maxlength="4" />
+    <input type="text" value="${esc(u.label)}" id="ucet-edit-label-${index}" class="form-control" style="flex:1;font-size:0.88rem;padding:0.25rem 0.5rem;" />
+    <button class="btn btn-primary btn-sm" onclick="saveUcetRow(${index})">✓</button>
+    <button class="btn btn-ghost btn-sm" onclick="renderUctyList()">✕</button>`;
+  document.getElementById(`ucet-edit-label-${index}`)?.select();
+}
+window.editUcetRow = editUcetRow;
+
+async function saveUcetRow(index) {
+  const ucty = [...getUcty()];
+  const icon = document.getElementById(`ucet-edit-icon-${index}`)?.value.trim() || '💳';
+  const label = document.getElementById(`ucet-edit-label-${index}`)?.value.trim();
+  if (!label) { showToast('Zadej název', 'error'); return; }
+  ucty[index] = { ...ucty[index], icon, label };
+  await _saveUcty(ucty);
+}
+window.saveUcetRow = saveUcetRow;
 
 async function addUcet() {
   const icon  = (document.getElementById('ucet-new-icon')?.value.trim()) || '💳';
@@ -2245,21 +2314,34 @@ async function _saveUcty(ucty) {
 
 // ── SPRÁVA KATEGORIÍ ──────────────────────────────────────────
 function renderKategorieList(typ) {
-  const listId = typ === 'prijem' ? 'kat-prijmy-list' : 'kat-vydaje-list';
+  const listId = typ === 'prijem' ? 'modal-kat-prijmy-list' : 'modal-kat-vydaje-list';
   const list = document.getElementById(listId);
   if (!list) return;
   const key = typ === 'prijem' ? 'custom_prijmy' : 'custom_vydaje';
-  const cats = state.nastaveni[key] || [];
-  if (!cats.length) {
-    list.innerHTML = `<p style="font-size:0.78rem;color:var(--text-muted);">Zatím žádné vlastní kategorie.</p>`;
-    return;
-  }
-  list.innerHTML = cats.map((c, i) => `
-    <div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.6rem;background:var(--bg-tertiary);border-radius:var(--radius);border:1px solid var(--border-subtle);">
-      <span style="flex:1;font-size:0.82rem;">${esc(c.label)}</span>
-      <span style="font-size:0.7rem;color:var(--text-muted);">${c.zdanitelny ? 'zdanit.' : 'nezdanit.'}</span>
-      <button class="btn btn-ghost btn-icon btn-sm" onclick="deleteKategorie('${typ}',${i})" style="color:var(--danger);">🗑</button>
+  const defaults = typ === 'prijem' ? PRIJMY_KATEGORIE : VYDAJE_KATEGORIE;
+  const custom = state.nastaveni[key] || [];
+
+  const defHtml = defaults.map(c => `
+    <div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0.6rem;background:var(--bg-secondary);border-radius:var(--radius);border:1px solid var(--border-subtle);opacity:0.65;">
+      <span style="flex:1;font-size:0.8rem;">${esc(c.label)}</span>
+      <span style="font-size:0.68rem;color:var(--text-muted);white-space:nowrap;">${c.zdanitelny ? 'zdanit.' : 'nezdanit.'}</span>
     </div>`).join('');
+
+  const custHtml = !custom.length
+    ? `<p style="font-size:0.78rem;color:var(--text-muted);padding:0.25rem 0;">Zatím žádné vlastní.</p>`
+    : custom.map((c, i) => `
+      <div id="kat-row-${typ}-${i}" style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0.6rem;background:var(--bg-tertiary);border-radius:var(--radius);border:1px solid var(--border-subtle);">
+        <span style="flex:1;font-size:0.8rem;">${esc(c.label)}</span>
+        <span style="font-size:0.68rem;color:var(--text-muted);white-space:nowrap;">${c.zdanitelny ? 'zdanit.' : 'nezdanit.'}</span>
+        <button class="btn btn-ghost btn-icon btn-sm" onclick="editKategorieRow('${typ}',${i})" title="Přejmenovat" style="font-size:0.75rem;">✏️</button>
+        <button class="btn btn-ghost btn-icon btn-sm" onclick="deleteKategorie('${typ}',${i})" title="Smazat" style="color:var(--danger);font-size:0.75rem;">🗑</button>
+      </div>`).join('');
+
+  list.innerHTML = `
+    <div style="font-size:0.68rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem;">Výchozí</div>
+    ${defHtml}
+    <div style="font-size:0.68rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin:0.65rem 0 0.3rem;">Vlastní</div>
+    ${custHtml}`;
 }
 
 async function addKategorie(typ) {
