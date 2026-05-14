@@ -604,7 +604,6 @@ function renderDenik() {
       <td>${t.zdanitelny ? '<span class="badge badge-income">Ano</span>' : '<span class="badge badge-neutral">Ne</span>'}</td>
       <td class="td-actions" onclick="event.stopPropagation()">
         <button class="btn btn-ghost btn-icon" onclick="editTransakce('${t.id}')" title="Upravit">✏️</button>
-        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('transakce','${t.id}','záznam',${JSON.stringify(t.popis||'')})" title="Smazat">🗑</button>
       </td>
     </tr>`;
   }).join('');
@@ -674,7 +673,12 @@ function showTransakceDetail(id) {
   };
   document.getElementById('detail-delete-btn').onclick = () => {
     closeModal('modal-transakce-detail');
-    confirmDelete('transakce', id, 'záznam', t.popis||'');
+    confirmDelete('transakce', id, 'záznam', null, null, [
+      ['Datum',   fmtDate(t.datum)],
+      ['Doklad',  t.doklad || '—'],
+      ['Popis',   t.popis  || '—'],
+      ['Částka',  (t.typ === 'prijem' ? '+' : '−') + fmtCzk(t.castka)],
+    ]);
   };
   openModal('modal-transakce-detail');
 }
@@ -728,7 +732,7 @@ function renderFakturyVydane() {
         <button class="btn btn-ghost btn-icon" onclick="editFakturaVydana('${f.id}')" title="Upravit">✏️</button>
         <button class="btn btn-ghost btn-icon" onclick="exportIsdoc('${f.id}')" title="Stáhnout ISDOC (XML faktura)">📄</button>
         ${f.stav!=='zaplaceno' ? `<button class="btn btn-ghost btn-icon" onclick="markFakturaPaid('vydane','${f.id}')" title="Označit jako zaplaceno">✅</button>` : ''}
-        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('fakturyVydane','${f.id}','fakturu',${JSON.stringify(f.cislo||'')})" title="Smazat">🗑</button>
+        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('fakturyVydane','${f.id}','faktura vydaná',null,null,[['Číslo',${JSON.stringify(f.cislo||'—')}],['Datum',${JSON.stringify(fmtDate(f.datum))}],['Odběratel',${JSON.stringify(f.odberatel||'—')}],['Částka',${JSON.stringify(fmtCzk(f.celkem))}]])" title="Smazat">🗑</button>
       </td>
     </tr>`;
   }).join('');
@@ -785,7 +789,7 @@ function renderFakturyPrijate() {
       <td class="td-actions">
         <button class="btn btn-ghost btn-icon" onclick="editFakturaPrijata('${f.id}')" title="Upravit">✏️</button>
         ${f.stav!=='zaplaceno' ? `<button class="btn btn-ghost btn-icon" onclick="markFakturaPaid('prijate','${f.id}')" title="Označit jako zaplaceno">✅</button>` : ''}
-        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('fakturyPrijate','${f.id}','fakturu',${JSON.stringify(f.cislo||f.dodavatel||'')})" title="Smazat">🗑</button>
+        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('fakturyPrijate','${f.id}','faktura přijatá',null,null,[['Číslo',${JSON.stringify(f.cislo||'—')}],['Datum',${JSON.stringify(fmtDate(f.datum))}],['Dodavatel',${JSON.stringify(f.dodavatel||'—')}],['Částka',${JSON.stringify(fmtCzk(f.castka))}]])" title="Smazat">🗑</button>
       </td>
     </tr>`;
   }).join('');
@@ -993,10 +997,16 @@ function openPohybDetail(idx) {
   const delBtn = document.getElementById('pohyb-detail-delete');
   if (delBtn) {
     delBtn.style.display = '';
+    const pohybDetails = [
+      ['Název',   p.nazev],
+      ['Datum',   fmtDate(p.datum)],
+      ['Doklad',  p.cisloDokladu || '—'],
+      ['Typ',     p.typ === 'prijem' ? 'Příjem na sklad' : 'Výdej ze skladu'],
+    ];
     if (p.source === 'manual') {
-      delBtn.onclick = () => { closeModal('modal-pohyb-detail'); confirmDelete('zasoby', p.manualId, 'pohyb', p.nazev); };
+      delBtn.onclick = () => { closeModal('modal-pohyb-detail'); confirmDelete('zasoby', p.manualId, 'pohyb', null, null, pohybDetails); };
     } else {
-      delBtn.onclick = () => { closeModal('modal-pohyb-detail'); confirmDelete(null, null, 'pohyb ze zásoby', p.nazev, () => hideSkladPohyb(p.skladId, p.skladTyp)); };
+      delBtn.onclick = () => { closeModal('modal-pohyb-detail'); confirmDelete(null, null, 'pohyb ze zásoby', null, () => hideSkladPohyb(p.skladId, p.skladTyp), pohybDetails); };
     }
   }
   openModal('modal-pohyb-detail');
@@ -1105,7 +1115,7 @@ function renderMajetek() {
       <td>${vyrazen ? `<span class="badge badge-neutral">Vyřazen ${fmtDate(m.datumVyrazeni)}</span>` : '<span class="badge badge-income">Aktivní</span>'}</td>
       <td class="td-actions">
         <button class="btn btn-ghost btn-icon" onclick="editMajetek('${m.id}')" title="Upravit">✏️</button>
-        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('majetek','${m.id}','majetek',${JSON.stringify(m.nazev||'')})" title="Smazat">🗑</button>
+        <button class="btn btn-ghost btn-icon" onclick="confirmDelete('majetek','${m.id}','majetek',null,null,[['Název',${JSON.stringify(m.nazev||'—')}],['Datum pořízení',${JSON.stringify(fmtDate(m.datumPorizeni))}],['Cena pořízení',${JSON.stringify(fmtCzk(m.cenaPorizeni))}]])" title="Smazat">🗑</button>
       </td>
     </tr>`;
   }).join('');
@@ -1721,10 +1731,18 @@ let pendingDelete = null;
 
 let _deleteTimerInterval = null;
 
-function confirmDelete(colName, id, label, name, onConfirm) {
+function confirmDelete(colName, id, label, name, onConfirm, details) {
   pendingDelete = { colName, id, onConfirm };
-  const nameStr = name ? ` „${esc(name)}"` : '';
-  document.getElementById('delete-text').innerHTML = `Opravdu chceš smazat ${label}${nameStr}? Tato akce je nevratná.`;
+  const el = document.getElementById('delete-text');
+  if (details && details.length) {
+    el.innerHTML = `<div style="margin-bottom:0.75rem;font-size:0.82rem;color:var(--text-muted);">Opravdu chceš smazat tento ${label}? Tato akce je nevratná.</div>`
+      + `<table style="width:100%;border-collapse:collapse;font-size:0.82rem;">`
+      + details.map(([k,v]) => `<tr><td style="color:var(--text-muted);padding:4px 10px 4px 0;width:35%;white-space:nowrap;vertical-align:top;">${esc(k)}</td><td style="font-weight:500;padding:4px 0;">${esc(String(v||'—'))}</td></tr>`).join('')
+      + `</table>`;
+  } else {
+    const nameStr = name ? ` „${esc(name)}"` : '';
+    el.innerHTML = `Opravdu chceš smazat ${label}${nameStr}? Tato akce je nevratná.`;
+  }
   const btn = document.getElementById('btn-confirm-delete');
   btn.onclick = () => executeDelete();
   btn.disabled = true;
