@@ -2528,6 +2528,7 @@ async function _runSkladSync(snap) {
     const items = snap.data().items || [];
     state.skladItems = items;
     scheduleRefresh();
+    _updateSkladSyncInfo();
     console.log('[SKLAD] snapshot přijat, položek celkem:', items.length);
 
     // Migrace: skladSyncedSaleIds nikdy nebylo inicializováno (starší verze)
@@ -2976,6 +2977,35 @@ function _updateSkladSyncInfo() {
   const nakupy  = (state.nastaveni.skladSyncedIds     || []).length;
   const prodeje = (state.nastaveni.skladSyncedSaleIds || []).length;
   el.textContent = `Sleduje ${nakupy} nákupů · ${prodeje} prodejů`;
+
+  // Show items that are blocked from syncing
+  const synced     = state.nastaveni.skladSyncedIds     || [];
+  const syncedSale = state.nastaveni.skladSyncedSaleIds || [];
+  const items      = state.skladItems || [];
+
+  const waiting = items
+    .filter(i => i.id && !synced.includes(i.id))
+    .filter(i => !i.homeDate || !(Number(i.buyPrice) > 0))
+    .map(i => {
+      const reasons = [];
+      if (!i.homeDate)              reasons.push('není Datum přijetí — označ jako Doma v SKLAD.');
+      if (!(Number(i.buyPrice) > 0)) reasons.push('chybí nákupní cena');
+      return { name: i.name || '?', reasons };
+    });
+
+  const waitingEl  = document.getElementById('sklad-sync-waiting');
+  const waitingList = document.getElementById('sklad-sync-waiting-list');
+  if (!waitingEl || !waitingList) return;
+
+  if (waiting.length) {
+    waitingEl.style.display = '';
+    waitingList.innerHTML = waiting.map(w =>
+      `<div>• <strong>${esc(w.name)}</strong> — ${w.reasons.join(', ')}</div>`
+    ).join('');
+  } else {
+    waitingEl.style.display = 'none';
+    waitingList.innerHTML = '';
+  }
 }
 
 // ── CUSTOM SELECT ─────────────────────────────────────────────
