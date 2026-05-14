@@ -118,7 +118,7 @@
         </div>
         <button class="btn-logout" id="btn-logout" title="Odhlásit se">⏻</button>
       </div>
-      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v52</div>
+      <div style="text-align:center;font-size:0.65rem;color:var(--text-muted);opacity:0.4;padding:0.25rem 0 0.5rem;">v53</div>
     </div>
   </nav>
 
@@ -739,6 +739,10 @@
                 <p id="sklad-sync-info" style="font-size:0.78rem;"></p>
               </div>
               <button class="btn btn-secondary btn-sm" onclick="disconnectSklad()">Odpojit</button>
+            </div>
+            <div id="sklad-sync-waiting" style="display:none;margin-top:0.75rem;padding:0.6rem 0.75rem;background:var(--warning-bg,rgba(255,200,0,0.08));border:1px solid var(--warning,#f5a623);border-radius:6px;font-size:0.78rem;">
+              <strong style="color:var(--warning,#f5a623);">⚠️ Položky čekající na sync</strong>
+              <div id="sklad-sync-waiting-list" style="margin-top:0.4rem;display:flex;flex-direction:column;gap:0.25rem;"></div>
             </div>
           </div>
           <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--border-subtle);display:flex;flex-direction:column;gap:0.6rem;">
@@ -1385,7 +1389,7 @@
 
   // Dynamically load app.js after Firebase is ready
   const script = document.createElement('script');
-  script.src = 'app.js?v=52';
+  script.src = 'app.js?v=53';
   document.body.appendChild(script);
 </script>
 
