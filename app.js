@@ -2555,7 +2555,7 @@ async function _runSkladSync(snap) {
       console.log(`[SKLAD] položka "${i.name||'?'}" id=${i.id} buyPrice=${i.buyPrice} homeDate=${i.homeDate||'❌'} inSynced=${!notSynced} → ${passes ? 'PŘIDÁ SE' : `SKIP (id:${hasId} notSynced:${notSynced} price:${hasBuyPrice} homeDate:${hasHomeDate})`}`);
     });
 
-    const newBuys  = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0 && i.homeDate);
+    const newBuys  = items.filter(i => i.id && !synced.includes(i.id) && Number(i.buyPrice) > 0);
     const newSales = items.filter(i => i.id && i.saleState === 'paid' && !syncedSale.includes(i.id));
     console.log('[SKLAD] nové nákupy:', newBuys.length, '| nové prodeje:', newSales.length);
 
@@ -2984,14 +2984,8 @@ function _updateSkladSyncInfo() {
   const items      = state.skladItems || [];
 
   const waiting = items
-    .filter(i => i.id && !synced.includes(i.id))
-    .filter(i => !i.homeDate || !(Number(i.buyPrice) > 0))
-    .map(i => {
-      const reasons = [];
-      if (!i.homeDate)              reasons.push('není Datum přijetí — označ jako Doma v SKLAD.');
-      if (!(Number(i.buyPrice) > 0)) reasons.push('chybí nákupní cena');
-      return { name: i.name || '?', reasons };
-    });
+    .filter(i => i.id && !synced.includes(i.id) && !(Number(i.buyPrice) > 0))
+    .map(i => ({ name: i.name || '?', reasons: ['chybí nákupní cena'] }));
 
   const waitingEl  = document.getElementById('sklad-sync-waiting');
   const waitingList = document.getElementById('sklad-sync-waiting-list');
