@@ -2559,13 +2559,45 @@ async function _runSkladSync(snap) {
     const newSales = items.filter(i => i.id && i.saleState === 'paid' && !syncedSale.includes(i.id));
     console.log('[SKLAD] nové nákupy:', newBuys.length, '| nové prodeje:', newSales.length);
 
-    const buyGroups  = _groupSkladItems(newBuys,  i => i.orderNum ? String(i.orderNum) : null);
-    const saleGroups = _groupSkladItems(newSales, i => i.saleRef  ? `${i.saleRef}__${i.soldWhere||''}` : null);
+    // Group new buys by purchase key — items with same doklad/orderNum/buyWhere/from are one transaction
+    const purchaseMap = new Map(); // key → [items]
+    const soloGroups  = [];       // items without grouping key → each gets own transakce
+    for (const item of newBuys) {
+      const key = _computePurchaseKey(item);
+      if (key) {
+        if (!purchaseMap.has(key)) purchaseMap.set(key, []);
+        purchaseMap.get(key).push(item);
+      } else {
+        soloGroups.push([item]);
+      }
+    }
 
-    for (const group of buyGroups)  { await _syncSkladBuyGroup(group);  group.forEach(i => synced.push(i.id)); }
+    let totalNewBuys = 0, totalBuyGroups = 0;
+    for (const [key, group] of purchaseMap) {
+      const dokladRef = key.split('__')[2] || '';
+      const existing  = _findMatchingTransakce(key, dokladRef);
+      if (existing) {
+        const existingItems = (existing.skladIds || [])
+          .map(id => (state.skladItems || []).find(i => i.id === id)).filter(Boolean);
+        await _rebuildSkladBuyGroup(existing, [...existingItems, ...group]);
+      } else {
+        await _syncSkladBuyGroup(group, key);
+        totalBuyGroups++;
+      }
+      group.forEach(i => synced.push(i.id));
+      totalNewBuys += group.length;
+    }
+    for (const group of soloGroups) {
+      await _syncSkladBuyGroup(group, null);
+      group.forEach(i => synced.push(i.id));
+      totalNewBuys += group.length;
+      totalBuyGroups++;
+    }
+
+    const saleGroups = _groupSkladItems(newSales, i => i.saleRef ? `${i.saleRef}__${i.soldWhere||''}` : null);
     for (const group of saleGroups) { await _syncSkladSaleGroup(group); group.forEach(i => syncedSale.push(i.id)); }
 
-    if (!buyGroups.length && !saleGroups.length) return;
+    if (!totalNewBuys && !saleGroups.length) return;
 
     await setDoc(docFn(db,'users',state.uid,'nastaveni','config'),
       { skladSyncedIds: synced, skladSyncedSaleIds: syncedSale }, { merge: true });
@@ -2573,10 +2605,7 @@ async function _runSkladSync(snap) {
     state.nastaveni.skladSyncedSaleIds = syncedSale;
     _updateSkladSyncInfo();
 
-    if (buyGroups.length) {
-      const ni = buyGroups.reduce((s,g)=>s+g.length,0);
-      showToast(`SKLAD.: ${ni} nákup${ni>1?'ů':''} → ${buyGroups.length} záznam${buyGroups.length>1?'y':'ů'} ve výdajích`, 'success');
-    }
+    if (totalNewBuys) showToast(`SKLAD.: ${totalNewBuys} nákup${totalNewBuys>1?'ů':''} → ${totalBuyGroups} nový${totalBuyGroups>1?' záznamy':' záznam'} + aktualizace`, 'success');
     if (saleGroups.length) {
       const ni = saleGroups.reduce((s,g)=>s+g.length,0);
       showToast(`SKLAD.: ${ni} prodej${ni>1?'ů':''} → ${saleGroups.length} záznam${saleGroups.length>1?'y':'ů'} v příjmech`, 'success');
@@ -2808,6 +2837,91 @@ async function aktualizujKurz(transakceId) {
 }
 
 
+// Compute a stable grouping key for a SKLAD item so items from the same purchase
+// are merged into one transakce across multiple snapshots.
+function _computePurchaseKey(item) {
+  const dokladTyp = item.dokladTyp || 'id';
+  let dokladRef = '';
+  if (dokladTyp === 'ks' && item.dokladCislo) {
+    const year = (item.buyDate || new Date().toISOString()).slice(0, 4);
+    const raw = (item.dokladCislo || '').trim();
+    dokladRef = /^KS/i.test(raw) ? raw.toUpperCase() : `KS${year}${raw.padStart(5, '0')}`;
+  } else if (dokladTyp === 'fp' && item.fpCislo) {
+    dokladRef = item.fpCislo;
+  } else if (item.orderNum) {
+    dokladRef = String(item.orderNum);
+  }
+  if (!dokladRef) return null; // no discriminating key → solo transakce
+  return [item.buyDate||'', dokladTyp, dokladRef, (item.buyWhere||'').trim(), (item.from||'').trim()].join('__');
+}
+
+// Compute KS/FP/ID doklad string for an item (same logic as _syncSkladBuyGroup)
+function _computeDokladCislo(item, datum) {
+  const dokladTyp = item.dokladTyp || 'id';
+  if (dokladTyp === 'fp' && item.fpCislo) return item.fpCislo;
+  if (dokladTyp === 'ks') {
+    const year = datum.slice(0, 4);
+    const raw = (item.dokladCislo || '').trim();
+    if (raw) return /^KS/i.test(raw) ? raw.toUpperCase() : `KS${year}${raw.padStart(5, '0')}`;
+    return `KS${year}${String(Date.now()).slice(-5)}`;
+  }
+  return null; // ID type → caller handles async _getNextIdNumber
+}
+
+// Find an existing SKLAD-sourced transakce that matches the purchase key or doklad number
+function _findMatchingTransakce(purchaseKey, dokladRef) {
+  const isSkladImport = t => (t.poznamka || '').startsWith('Importováno ze SKLAD.');
+  const byKey = state.transakce.find(t => isSkladImport(t) && t.nakupKlic === purchaseKey);
+  if (byKey) return byKey;
+  if (dokladRef) return state.transakce.find(t => isSkladImport(t) && t.doklad === dokladRef);
+  return null;
+}
+
+// Rebuild (UPDATE) an existing transakce with the full list of SKLAD items in the group
+async function _rebuildSkladBuyGroup(existing, allItems) {
+  if (!allItems.length) return;
+  const datum = existing.datum;
+  const eurItems = allItems.filter(i => (i.buyCurrency||'CZK').toUpperCase() === 'EUR');
+  const czkItems = allItems.filter(i => (i.buyCurrency||'CZK').toUpperCase() !== 'EUR');
+  const castkaCziEur = eurItems.reduce((s,i) => s + Number(i.buyPrice||0), 0);
+  let castka = czkItems.reduce((s,i) => s + Number(i.buyPrice||0), 0);
+
+  let kurzInfo = null;
+  if (eurItems.length > 0) {
+    // Reuse stored rate if available, else refetch
+    const storedRate = existing.kurzCnb;
+    const cnb = storedRate ? { rate: storedRate, source: existing.kurzDatum } : await fetchCnbRate(datum, 'EUR');
+    if (cnb?.rate) {
+      castka += castkaCziEur * cnb.rate;
+      const isPending = !storedRate && cnb.source !== datum && datum === todayStr() && _isWorkday(datum);
+      kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100,
+                   castkaCzkBase: castka - castkaCziEur * cnb.rate,
+                   kurzCnb: cnb.rate, kurzDatum: cnb.source, kurzStazeno: existing.kurzStazeno || new Date().toISOString(),
+                   ...(isPending ? { kurzPending: true } : { kurzPending: false }) };
+    } else {
+      kurzInfo = { menaCizi: 'EUR', castkaCizi: Math.round(castkaCziEur * 100) / 100, kurzCnb: null };
+    }
+  }
+
+  const rateOk = !!(kurzInfo?.kurzCnb);
+  const isPending = !!(kurzInfo?.kurzPending);
+  const eurTag = kurzInfo ? ` (${kurzInfo.castkaCizi} EUR)` : '';
+  const popis = allItems.length === 1
+    ? `${allItems[0].name || 'Nákup'}${eurTag}`
+    : `Nákup: ${allItems.map(i => i.name || '?').join(' · ')}${eurTag}`;
+  const breakdown = allItems.map(i => `${i.name||'?'}: ${Number(i.buyPrice||0)} ${(i.buyCurrency||'CZK').toUpperCase()}`).join(' | ');
+  const poznamka = `Importováno ze SKLAD.${kurzInfo && !rateOk ? ` ⚠️ DOPLŇ RUČNĚ částku v CZK (${kurzInfo.castkaCizi} EUR, kurz ČNB nedostupný)` : isPending ? ` ⏳ Kurz z ${fmtDate(kurzInfo.kurzDatum)}, dnešní kurz ČNB ještě nebyl vyhlášen` : ''} · ${breakdown}`;
+
+  const update = {
+    castka: Math.round(castka * 100) / 100,
+    popis, poznamka,
+    skladIds: allItems.map(i => i.id),
+  };
+  if (kurzInfo) Object.assign(update, kurzInfo);
+  const { updateDoc } = window._firebase;
+  await updateDoc(docRef('transakce', existing.id), update);
+}
+
 function _groupSkladItems(items, keyFn) {
   const map = new Map();
   const solo = [];
@@ -2823,7 +2937,7 @@ function _groupSkladItems(items, keyFn) {
   return [...map.values(), ...solo];
 }
 
-async function _syncSkladBuyGroup(items) {
+async function _syncSkladBuyGroup(items, nakupKlic) {
   const first = items[0];
   const datum = first.homeDate || first.buyDate || (first.dateAdded ? new Date(first.dateAdded).toISOString().slice(0,10) : todayStr());
 
@@ -2850,37 +2964,19 @@ async function _syncSkladBuyGroup(items) {
     }
   }
 
-  const rateOk  = !!(kurzInfo?.kurzCnb);
+  const rateOk    = !!(kurzInfo?.kurzCnb);
   const isPending = !!(kurzInfo?.kurzPending);
-  const eurTag  = kurzInfo ? ` (${kurzInfo.castkaCizi} EUR)` : '';
-  const popis   = items.length === 1
+  const eurTag    = kurzInfo ? ` (${kurzInfo.castkaCizi} EUR)` : '';
+  const popis     = items.length === 1
     ? `${first.name || 'Nákup'}${eurTag}`
     : `Nákup: ${items.map(i => i.name || '?').join(' · ')}${eurTag}`;
-
-  const breakdown = items.map(i => {
-    const cur = (i.buyCurrency||'CZK').toUpperCase();
-    return `${i.name||'?'}: ${Number(i.buyPrice||0)} ${cur}`;
-  }).join(' | ');
+  const breakdown = items.map(i => `${i.name||'?'}: ${Number(i.buyPrice||0)} ${(i.buyCurrency||'CZK').toUpperCase()}`).join(' | ');
 
   const { addDoc } = window._firebase;
 
-  // Determine doklad number: FP, KS with custom number, or auto-generate ID
-  let dokladCislo = '';
-  if (first.dokladTyp === 'fp' && first.fpCislo) {
-    dokladCislo = first.fpCislo;
-  } else if (first.dokladTyp === 'ks') {
-    const year = datum.slice(0, 4);
-    const raw = (first.dokladCislo || '').trim();
-    if (raw) {
-      // If user already typed the full number (starts with KS), use as-is; else prepend KS+year
-      dokladCislo = /^KS/i.test(raw) ? raw.toUpperCase() : `KS${year}${raw.padStart(5, '0')}`;
-    } else {
-      dokladCislo = `KS${year}${String(Date.now()).slice(-5)}`;
-    }
-  } else {
-    const year = datum.slice(0, 4);
-    dokladCislo = await _getNextIdNumber(year);
-  }
+  // Determine doklad number using shared helper; ID type needs async counter
+  let dokladCislo = _computeDokladCislo(first, datum);
+  if (!dokladCislo) dokladCislo = await _getNextIdNumber(datum.slice(0, 4));
 
   const record = {
     typ: 'vydej', datum, popis,
@@ -2889,6 +2985,7 @@ async function _syncSkladBuyGroup(items) {
     castka: Math.round(castka * 100) / 100,
     kategorie: 'nakup_zbozi', ucet: 'bank', zdanitelny: true,
     poznamka: `Importováno ze SKLAD.${kurzInfo && !rateOk ? ` ⚠️ DOPLŇ RUČNĚ částku v CZK (${kurzInfo.castkaCizi} EUR, kurz ČNB nedostupný)` : isPending ? ` ⏳ Kurz z ${fmtDate(kurzInfo.kurzDatum)}, dnešní kurz ČNB ještě nebyl vyhlášen` : ''} · ${breakdown}`,
+    ...(nakupKlic ? { nakupKlic } : {}),
   };
   if (rateOk) Object.assign(record, kurzInfo);
   await addDoc(col('transakce'), record);
