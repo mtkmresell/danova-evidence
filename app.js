@@ -2563,6 +2563,26 @@ async function _runSkladSync(snap) {
     state.nastaveni.skladSyncedIds     = [...synced];
     state.nastaveni.skladSyncedSaleIds = [...syncedSale];
 
+    // Záchranná síť: pokud jsou syncedIds nekompletní, doplň je z existujících transakce
+    // Tím zabráníme opakovanému importu i když se config ztratí
+    const existingBuyIds  = new Set();
+    const existingSaleIds = new Set();
+    (state.transakce || []).forEach(t => {
+      if (!Array.isArray(t.skladIds)) return;
+      if (t.typ === 'vydej')  t.skladIds.forEach(id => existingBuyIds.add(id));
+      if (t.typ === 'prijem') t.skladIds.forEach(id => existingSaleIds.add(id));
+    });
+    let _syncedRepaired = false;
+    existingBuyIds.forEach(id  => { if (!synced.includes(id))     { synced.push(id);     _syncedRepaired = true; } });
+    existingSaleIds.forEach(id => { if (!syncedSale.includes(id)) { syncedSale.push(id); _syncedRepaired = true; } });
+    if (_syncedRepaired) {
+      console.warn('[SKLAD] skladSyncedIds byly nekompletní, opraveny z transakce →', synced.length, 'nákupů,', syncedSale.length, 'prodejů');
+      await setDoc(docFn(db,'users',state.uid,'nastaveni','config'),
+        { skladSyncedIds: synced, skladSyncedSaleIds: syncedSale }, { merge: true });
+      state.nastaveni.skladSyncedIds     = synced;
+      state.nastaveni.skladSyncedSaleIds = syncedSale;
+    }
+
     // Detailní log proč každá položka prošla / neprošla filtrem
     items.forEach(i => {
       const hasId       = !!i.id;
